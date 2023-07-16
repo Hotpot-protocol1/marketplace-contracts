@@ -1,7 +1,7 @@
 const { ethers } = require('hardhat');
 
 const INITIAL_POT_FEE = 1000; // 10%
-const TRADE_FEE = 100; // 1%
+const TRADE_FEE = 1000; // 10%
 const HUNDRED_PERCENT = 10000;
 const INITIAL_TICKET_COST = ethers.parseEther("0.2");
 const INITIAL_NUMBER_OF_WINNERS = 11;

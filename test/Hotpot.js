@@ -3,7 +3,7 @@ const {
     mine,
     time,
 } = require("@nomicfoundation/hardhat-network-helpers");
-const { expect } = require("chai");
+const { expect, use } = require("chai");
 const { deployHotpotImplementation } = require('../scripts/deploy/HotpotImplementation');
 const { ethers } = require('hardhat');
 const { dealLINKToAddress } = require("../scripts/utils/dealLINKToAddress.js");
@@ -19,10 +19,7 @@ const {
   LINK_FUNDING
 } = require("../scripts/utils/parameters.js");
 const { tradeToFillThePot } = require("../scripts/utils/tradeToFillThePot.js");
-const { exists } = require('fp-ts/lib/Option');
 const { deployMarketplace } = require('../scripts/deploy/Marketplace');
-const {  getNftData } = require('../scripts/utils/nftData');
-const { impersonateAccount, stopImpersonating } = require('../scripts/utils/impersonateAccount.js');
 
 
 describe("Hotpot", function () {
@@ -176,29 +173,51 @@ describe("Hotpot", function () {
     } = await loadFixture(
       deployEverythingFixture
     );
+    const { nft_collection } = await loadFixture(deployCollectionFixture);
     const [, user1, user2] = await ethers.getSigners();
-    const trade_amount = ethers.parseEther("0.2");
-    const init_buyer_pending_amount = ethers.parseEther("0");
     const buyer = await user1.getAddress();
     const seller = await user2.getAddress();
 
-    const trade = marketplace.trade(
-      hotpot.target, 
-      trade_amount,
-      buyer,
-      seller,
-      init_buyer_pending_amount,
-      0
+    /*
+      Mint token, approve and list
+     */
+    await nft_collection.mint(user2);
+    const token_id = 1;
+    await nft_collection.connect(user2).approve(marketplace.target, token_id);
+    const price = ethers.parseEther("1.0");
+    const item_id = 1;
+    const listing = marketplace.connect(user2).makeItem(
+      nft_collection.target, 
+      token_id, 
+      price
     );
+    expect(listing).to.emit(marketplace, "Offered").withArgs(
+      item_id,
+      nft_collection.target,
+      token_id,
+      price,
+      seller
+    );
+    await listing;
+
+    /* 
+      Trade
+     */
+    const trade_fee = await hotpot.tradeFee();
+    const trade_amount = price * 
+      (BigInt(HUNDRED_PERCENT) + trade_fee) / BigInt(HUNDRED_PERCENT);
+    const trade = marketplace.connect(user1).purchaseItem(item_id, {
+      value: trade_amount
+    });
     /* 
       Check the generated tickets and new pending amounts
      */
-    const expected_buyer_tickets = 1;
-    const expected_seller_tickets = 1;
+    const expected_buyer_tickets = 5;
+    const expected_seller_tickets = 5;
     const buyer_id_start = 2;
-    const buyer_id_end = 2; //buyer_id_start + expected_buyer_tickets - 1;
-    const seller_id_start = 0;// buyer_id_end + 1;
-    const seller_id_end = 0; // seller_id_start + expected_seller_tickets - 1;
+    const buyer_id_end = 7; //buyer_id_start + expected_buyer_tickets - 1;
+    const seller_id_start = 8;// buyer_id_end + 1;
+    const seller_id_end = 13; // seller_id_start + expected_seller_tickets - 1;
 
     expect(trade).to.emit(hotpot, "GenerateRaffleTickets").withArgs(
       buyer,
@@ -207,8 +226,16 @@ describe("Hotpot", function () {
       buyer_id_end,
       seller_id_start,
       seller_id_end,
-      init_buyer_pending_amount,
+      0,
       0
+    );
+    expect(trade).to.emit(marketplace, "Bought").withArgs(
+      item_id,
+      nft_collection.target,
+      token_id,
+      price,
+      seller,
+      buyer
     );
     await trade;
 
@@ -216,14 +243,13 @@ describe("Hotpot", function () {
       Check the currentPotSize and the balance of the Pot
      */
     // 1% of trade_amount
-    const expected_trade_fee = trade_amount * BigInt(TRADE_FEE) / 
-      BigInt(HUNDRED_PERCENT); 
+    const expected_trade_fee = trade_amount - price;
     // 90% of trade_fee
     const expected_pot_size = expected_trade_fee * 
       BigInt(HUNDRED_PERCENT - INITIAL_POT_FEE) / BigInt(HUNDRED_PERCENT);
-    expect(await hotpot.currentPotSize()).to.equal(expected_pot_size);
+    expect(await hotpot.currentPotSize()).to.equal(expected_pot_size, "Unexpected pot size");
     const pot_balance = await ethers.provider.getBalance(hotpot.target);
-    expect(pot_balance).to.equal(expected_trade_fee);
+    expect(pot_balance).to.equal(expected_trade_fee, "Incorrect pot balance");
 
     /* 
       Check access control

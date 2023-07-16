@@ -5,7 +5,7 @@ import "@openzeppelin/contracts/token/ERC721/IERC721.sol";
 import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "./interface/IHotpot.sol";
-
+import "hardhat/console.sol"; // TODO: remove import
 
 contract Marketplace is ReentrancyGuard, Ownable {
 
@@ -94,7 +94,7 @@ contract Marketplace is ReentrancyGuard, Ownable {
         address _raffleContract = raffleContract;
         
         if (_raffleContract != address(0)) {
-            uint256 fee = msg.value; // the rest of the value goes to the pot 
+            uint256 fee = msg.value - item.price; // the rest of the value goes to the pot
             IHotpot(_raffleContract).executeTrade{ value: fee }(
                 _totalPrice,
                 msg.sender,
