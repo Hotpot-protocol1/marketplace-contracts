@@ -3,19 +3,20 @@ pragma solidity ^0.8.4;
 
 import "@openzeppelin/contracts/token/ERC721/IERC721.sol";
 import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
+import "@openzeppelin/contracts/access/Ownable.sol";
 import "./interface/IHotpot.sol";
 
 
-contract Marketplace is ReentrancyGuard {
+contract Marketplace is ReentrancyGuard, Ownable {
 
     // Variables
-    uint public itemCount; 
-    address public owner;
+    uint128 public itemCount;
+    uint128 public activeItemCount;
     /* 
     Hotpot variables
      */
     address public raffleContract; 
-    uint256 constant RAFFLE_TRADE_FEE = 1000; // 10%
+    uint256 public raffleTradeFee = 1000;
     uint256 constant HUNDRED_PERCENT = 10000;
 
     struct Item {
@@ -46,19 +47,16 @@ contract Marketplace is ReentrancyGuard {
         address indexed buyer
     );
 
-    constructor() {
-        owner = msg.sender;
-    }
-
     // Make item to offer on the marketplace
     function makeItem(IERC721 _nft, uint _tokenId, uint _price) external nonReentrant {
         require(_price > 0, "Price must be greater than zero");
         // increment itemCount
-        itemCount ++;
+        itemCount++;
+        activeItemCount++;
         // transfer nft
         _nft.transferFrom(msg.sender, address(this), _tokenId);
         // add new item to items mapping
-        items[itemCount] = Item (
+        items[itemCount] = Item(
             itemCount,
             _nft,
             _tokenId,
@@ -88,6 +86,7 @@ contract Marketplace is ReentrancyGuard {
         item.sold = true;
         // transfer nft to buyer
         item.nft.transferFrom(address(this), msg.sender, item.tokenId);
+        activeItemCount--;
 
         /* 
             Hotpot Execute Trade
@@ -95,7 +94,7 @@ contract Marketplace is ReentrancyGuard {
         address _raffleContract = raffleContract;
         
         if (_raffleContract != address(0)) {
-            uint256 fee = item.price * RAFFLE_TRADE_FEE / HUNDRED_PERCENT; 
+            uint256 fee = msg.value; // the rest of the value goes to the pot 
             IHotpot(_raffleContract).executeTrade{ value: fee }(
                 _totalPrice,
                 msg.sender,
@@ -115,18 +114,21 @@ contract Marketplace is ReentrancyGuard {
         );
     }
 
-    function setRaffleAddress(address raffle) external {
-        require(msg.sender == owner, "Only owner");
+    function setRaffleAddress(address raffle) external onlyOwner {
         raffleContract = raffle;
+    }
+
+    function setRaffleTradeFee(uint256 _newTradeFee) external onlyOwner {
+        raffleTradeFee = _newTradeFee;
     }
 
     function getTotalPrice(uint _itemId) view public returns(uint){
         return((items[_itemId].price * 
-            (HUNDRED_PERCENT + RAFFLE_TRADE_FEE)) / HUNDRED_PERCENT);
+            (HUNDRED_PERCENT + raffleTradeFee)) / HUNDRED_PERCENT);
     }
 
     function getAllListedNfts() view external returns(Item[] memory) {
-        Item[] memory nfts = new Item[](itemCount);
+        Item[] memory nfts = new Item[](activeItemCount);
         uint256 totalCount = itemCount;
         uint256 nftCount = 0;
         for(uint i = 0; i < totalCount; i++) {
