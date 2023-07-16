@@ -20,6 +20,9 @@ const {
 } = require("../scripts/utils/parameters.js");
 const { tradeToFillThePot } = require("../scripts/utils/tradeToFillThePot.js");
 const { exists } = require('fp-ts/lib/Option');
+const { deployMarketplace } = require('../scripts/deploy/Marketplace');
+const {  getNftData } = require('../scripts/utils/nftData');
+const { impersonateAccount, stopImpersonating } = require('../scripts/utils/impersonateAccount.js');
 
 
 describe("Hotpot", function () {
@@ -29,7 +32,7 @@ describe("Hotpot", function () {
       hotpot_impl, V3Aggregator, VRFCoordinator, VRFV2Wrapper
     } = await deployHotpotImplementation();
     /* 
-    Deploying the Hotpot Factory
+    Deploying the Hotpot Factory and Marketplace contracts
      */
     const factory = await ethers.deployContract("HotpotFactory", [hotpot_impl.target]);
     await factory.waitForDeployment();
@@ -37,14 +40,7 @@ describe("Hotpot", function () {
     const beacon_address = await factory.beacon();
     const beacon = await ethers.getContractAt("UpgradeableBeacon", 
       beacon_address.toString());
-
-    /*
-      Deploying the Marketplace contract 
-    */
-    const marketplace = await ethers.deployContract("MarketplaceMock", {
-      value: ethers.parseEther("100.0")
-    });
-    await marketplace.waitForDeployment();
+    const marketplace = await deployMarketplace();
 
     /*
       Deploying the first Hotpot 
@@ -63,6 +59,7 @@ describe("Hotpot", function () {
     await factory.connect(owner).deployHotpot(init_params);
     const hotpot_address = await factory.hotpots(0);
     const hotpot = await ethers.getContractAt("Hotpot", hotpot_address);
+    marketplace.setRaffleAddress(hotpot_address);
 
     /*
       Funding the Hotpot with LINK 
@@ -71,6 +68,12 @@ describe("Hotpot", function () {
 
     return { factory, hotpot_impl, owner, otherAccount, beacon, marketplace,
     hotpot, V3Aggregator, VRFCoordinator, VRFV2Wrapper};
+  }
+
+  async function deployCollectionFixture() {
+    const nft_collection = await ethers.deployContract("ERC721Mock");
+    await nft_collection.waitForDeployment();
+    return {nft_collection};
   }
 
   async function deployEverythingAndFillPotFixture() {
@@ -129,6 +132,41 @@ describe("Hotpot", function () {
       operator: otherAccount
     }
     await expect(hotpot.initialize(owner_address, init_params)).to.be.revertedWith("Initializable: contract is already initialized");
+  });
+
+  it('should list an nft', async function() {
+    const { 
+      factory, hotpot_impl, owner, 
+      otherAccount, marketplace, hotpot
+    } = await loadFixture(
+      deployEverythingFixture
+    );
+    const { nft_collection } = await loadFixture(deployCollectionFixture);
+
+    /*
+      Mint and Approve
+     */
+    const [, user1, user2] = await ethers.getSigners();
+    await nft_collection.mint(user1);
+    await nft_collection.mint(user2);
+    await nft_collection.connect(user1).approve(marketplace.target, 1);
+    await nft_collection.connect(user2).approve(marketplace.target, 2);
+    const price1 = ethers.parseEther("1.0");
+    const price2 = ethers.parseEther("2.0");
+
+    /* 
+      List
+     */
+    await marketplace.connect(user1).makeItem(
+      nft_collection.target, 
+      1, 
+      price1
+    );
+    await marketplace.connect(user2).makeItem(
+      nft_collection.target, 
+      2, 
+      price2
+    );
   });
 
   it("should execute a trade", async function() {
@@ -205,7 +243,7 @@ describe("Hotpot", function () {
     console.log("Last ticket id: ", Number(lastTicketId));
   });
   
-  it("Two trades should currectly generate tickets and set a range", async function() {
+  it("Two trades should correctly generate tickets and set a range", async function() {
     const { 
       factory, hotpot_impl, owner, 
       otherAccount, marketplace, hotpot

@@ -25,7 +25,7 @@ module.exports = {
     hardhat: {
         forking: {
             url: INFURA_MAINNET_API,
-            blockNumber: 17485589,
+            blockNumber: 17704555,
         },
         accounts: {
           accountsBalance: "20000000000000000000000" // 20000 ETH
