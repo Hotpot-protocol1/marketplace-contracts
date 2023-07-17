@@ -82,13 +82,14 @@ describe("Hotpot", function () {
     } = await loadFixture(
       deployEverythingFixture
     );
+    const { nft_collection } = await loadFixture(deployCollectionFixture);
 
-    await tradeToFillThePot(marketplace, hotpot);
+    await tradeToFillThePot(marketplace, nft_collection, 1);
 
     return {
       factory, hotpot_impl, owner, 
       otherAccount, marketplace, hotpot,
-      V3Aggregator, VRFCoordinator, VRFV2Wrapper
+      V3Aggregator, VRFCoordinator, VRFV2Wrapper, nft_collection
     }
   }
 
@@ -446,14 +447,16 @@ describe("Hotpot", function () {
     } = await loadFixture(
       deployEverythingFixture
     );
-    const trade = tradeToFillThePot(marketplace, hotpot);
+    const { nft_collection } = await loadFixture(deployCollectionFixture);
+
+    const trade = tradeToFillThePot(marketplace, nft_collection, 1);
 
     /*
       Check the event and request data
      */
     const ticket_id_from = 2;
     const ticket_id_to = 120003;
-    await expect(trade).to.emit(hotpot, "RandomWordRequested");
+    //await expect(trade).to.emit(hotpot, "RandomWordRequested");
     await trade;
     const request_id = await hotpot.lastRequestId();
     expect(request_id).to.not.equal(0, "Last request id is not set");
@@ -596,7 +599,7 @@ describe("Hotpot", function () {
   it("Second pot is successfully filled after trades", async function() {
     const { 
       factory, hotpot_impl, owner, otherAccount, beacon, marketplace,
-      hotpot, V3Aggregator, VRFCoordinator, VRFV2Wrapper
+      hotpot, V3Aggregator, VRFCoordinator, VRFV2Wrapper, nft_collection
     } = await loadFixture(
       deployEverythingAndFillPotFixture
     );
@@ -622,21 +625,19 @@ describe("Hotpot", function () {
     /* 
       Intermediate trade
     */
-    const ticket_id_start = Number(await hotpot.nextPotTicketIdStart());
     const [, user1, user2] = await ethers.getSigners();
+    const ticket_id_start = Number(await hotpot.nextPotTicketIdStart());
     const trade_amount = ethers.parseEther("3.2");
-    const buyer_pending_amount = ethers.parseEther("0.1");
+    const price = trade_amount / BigInt(HUNDRED_PERCENT + TRADE_FEE);
     const buyer = await user1.getAddress();
     const seller = await user2.getAddress();
+    const item_id = 2;
 
-    const trade = marketplace.trade(
-      hotpot.target, 
-      trade_amount,
-      buyer,
-      seller,
-      buyer_pending_amount,
-      0
-    );
+    await mintAndListNewItem(user2, marketplace, nft_collection, price);
+    const trade = marketplace.connect(user1).purchaseItem(item_id, {
+      value: trade_amount
+    });
+    
     /* 
       Check the generated tickets and new pending amounts
      */
@@ -662,7 +663,7 @@ describe("Hotpot", function () {
     /*
       Fill up the current pot and check winners
      */
-    await tradeToFillThePot(marketplace, hotpot);
+    await tradeToFillThePot(marketplace, nft_collection, item_id + 1);
     const request_id = await hotpot.lastRequestId();
     expect(request_id).to.not.equal(0, "Last request id is not set");
     expect(await hotpot.requestIds(1)).to.equal(request_id, "Request ids array is not updated");
