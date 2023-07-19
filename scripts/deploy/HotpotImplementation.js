@@ -70,6 +70,7 @@ async function deployHotpotImplementation() {
   let VRFV2Wrapper;
   let vrf_v2_wrapper_address;
   let LINK_address;
+  let hotpot_impl;
 
   if (STAGE == "FORK_TESTING") {
     const vrf_contracts = await deployVRFContracts();
@@ -91,10 +92,15 @@ async function deployHotpotImplementation() {
     LINK_address = LINK_TOKEN_SEPOLIA;
   }
 
-  const hotpot_impl = await ethers.deployContract("Hotpot", [
-    LINK_address,
-    vrf_v2_wrapper_address
-  ]);
+  if (STAGE == "XDC_FORK_TESTING") {
+    hotpot_impl = await ethers.deployContract("HotpotXDC");
+  }
+  else {
+    hotpot_impl = await ethers.deployContract("Hotpot", [
+      LINK_address,
+      vrf_v2_wrapper_address
+    ]);
+  }
   await hotpot_impl.waitForDeployment();
 
   console.log(

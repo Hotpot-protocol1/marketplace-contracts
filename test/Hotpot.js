@@ -21,7 +21,12 @@ const {
 const { tradeToFillThePot } = require("../scripts/utils/tradeToFillThePot.js");
 const { deployMarketplace } = require('../scripts/deploy/Marketplace');
 const { mintAndListNewItem } = require('../scripts/utils/mintAndListNewItem');
+const { generateRandomSalt } = require('../scripts/utils/generateRandomSalt');
+require("dotenv").config();
+const { STAGE } = process.env;
 
+const NO_CHAINLINK = STAGE == "XDC_FORK_TESTING";
+const IS_XDC = STAGE == "XDC_FORK_TESTING";
 
 describe("Hotpot", function () {
   async function deployEverythingFixture() {
@@ -56,13 +61,21 @@ describe("Hotpot", function () {
 
     await factory.connect(owner).deployHotpot(init_params);
     const hotpot_address = await factory.hotpots(0);
-    const hotpot = await ethers.getContractAt("Hotpot", hotpot_address);
-    marketplace.setRaffleAddress(hotpot_address);
+    let hotpot;
+    if (IS_XDC) {
+      hotpot = await ethers.getContractAt("HotpotXDC", hotpot_address);
+    }
+    else {
+      hotpot = await ethers.getContractAt("Hotpot", hotpot_address);
+    }
+    await marketplace.setRaffleAddress(hotpot_address);
 
     /*
       Funding the Hotpot with LINK 
      */
-    await dealLINKToAddress(hotpot.target, LINK_FUNDING); // 5k LINK should be enough
+    if (!NO_CHAINLINK) {
+      await dealLINKToAddress(hotpot.target, LINK_FUNDING); // 5k LINK should be enough
+    }
 
     return { factory, hotpot_impl, owner, otherAccount, beacon, marketplace,
     hotpot, V3Aggregator, VRFCoordinator, VRFV2Wrapper};
@@ -221,7 +234,7 @@ describe("Hotpot", function () {
     const seller_id_end = 13; // seller_id_start + expected_seller_tickets - 1;
 
     expect(trade).to.emit(hotpot, "GenerateRaffleTickets").withArgs(
-      buyer,
+      seller,
       seller,
       buyer_id_start,
       buyer_id_end,
@@ -245,12 +258,12 @@ describe("Hotpot", function () {
      */
     // 1% of trade_amount
     const expected_trade_fee = trade_amount - price;
+    const pot_balance = await ethers.provider.getBalance(hotpot.target);
+    expect(pot_balance).to.equal(expected_trade_fee, "Incorrect pot balance");
     // 90% of trade_fee
     const expected_pot_size = expected_trade_fee * 
       BigInt(HUNDRED_PERCENT - INITIAL_POT_FEE) / BigInt(HUNDRED_PERCENT);
     expect(await hotpot.currentPotSize()).to.equal(expected_pot_size, "Unexpected pot size");
-    const pot_balance = await ethers.provider.getBalance(hotpot.target);
-    expect(pot_balance).to.equal(expected_trade_fee, "Incorrect pot balance");
 
     /* 
       Check access control
@@ -456,12 +469,17 @@ describe("Hotpot", function () {
      */
     const ticket_id_from = 2;
     const ticket_id_to = 120003;
-    //await expect(trade).to.emit(hotpot, "RandomWordRequested");
     await trade;
     const request_id = await hotpot.lastRequestId();
+    let request_created;
     expect(request_id).to.not.equal(0, "Last request id is not set");
-    expect(await hotpot.requestIds(0)).to.equal(request_id, "Request ids array is not updated");
-    [, request_created, ] = await hotpot.chainlinkRequests(request_id);
+    if (NO_CHAINLINK) {
+      [, request_created, ] = await hotpot.randomRequests(request_id);
+    }
+    else {
+      expect(await hotpot.requestIds(0)).to.equal(request_id, "Request ids array is not updated");
+      [, request_created, ] = await hotpot.chainlinkRequests(request_id);
+    }
     expect(request_created).to.equal(true, "Request status is not set to true");
 
   });
@@ -478,17 +496,32 @@ describe("Hotpot", function () {
     The Pot is filled, so the random word is already requested
      */
     const request_id = await hotpot.lastRequestId();
+    let fulfilled_;
+    let exists_;
+    let fulfilled_after;
+
     expect(request_id).to.not.equal(0, "Last request id is not set");
-    expect(await hotpot.requestIds(0)).to.equal(request_id, "Request ids array is not updated");
-    [fulfilled_, exists_, ] = await hotpot.chainlinkRequests(request_id);
+    if (NO_CHAINLINK) {
+      [fulfilled_, exists_, ] = await hotpot.randomRequests(request_id);
+    }
+    else {
+      expect(await hotpot.requestIds(0)).to.equal(request_id, "Request ids array is not updated");
+      [fulfilled_, exists_, ] = await hotpot.chainlinkRequests(request_id);
+    }
     expect(fulfilled_).to.equal(false, "The request should not be fulfilled before waiting");
     expect(exists_).to.equal(true, "Request should exist");
 
     //  Manually fulfill the request
-    await VRFCoordinator.fulfillRandomWords(request_id, VRFV2Wrapper.target);
-
-    // Ensure the request is fulfilled
-    [fulfilled_after,,] = await hotpot.chainlinkRequests(request_id);
+    if (NO_CHAINLINK) {
+      const salt = generateRandomSalt();
+      await hotpot.connect(owner).fulfillRandomWords(request_id, salt);
+      [fulfilled_after,,] = await hotpot.randomRequests(request_id);
+    }
+    else {
+      await VRFCoordinator.fulfillRandomWords(request_id, VRFV2Wrapper.target);
+      [fulfilled_after,,] = await hotpot.chainlinkRequests(request_id);
+    }
+    // Ensure the request is fulfilled    
     expect(fulfilled_after).to.equal(true, "The request should be already fulfilled");
 
     /*
@@ -607,13 +640,15 @@ describe("Hotpot", function () {
     /*
       Check LINK balance
      */
-    const LinkToken = await ethers.getContractAt("ERC20", LINK_MAINNET);
-    const hotpot_link_balance = await LinkToken.balanceOf(hotpot.target);
-    const link_spent = LINK_FUNDING - hotpot_link_balance;
+    if (!NO_CHAINLINK) {
+      const LinkToken = await ethers.getContractAt("ERC20", LINK_MAINNET);
+      const hotpot_link_balance = await LinkToken.balanceOf(hotpot.target);
+      const link_spent = LINK_FUNDING - hotpot_link_balance;
 
-    console.log("LINK spent on VRF fullfillment: ", 
-      ethers.formatEther(link_spent.toString())
-    );
+      console.log("LINK spent on VRF fullfillment: ", 
+        ethers.formatEther(link_spent.toString())
+      );
+    }
 
     // Set a new raffle ticket cost
     const new_ticket_cost = ethers.parseEther("0.1");
@@ -665,17 +700,33 @@ describe("Hotpot", function () {
      */
     await tradeToFillThePot(marketplace, nft_collection, item_id + 1);
     const request_id = await hotpot.lastRequestId();
+    let fulfilled_;
+    let exists_;
+    let fulfilled_after;
     expect(request_id).to.not.equal(0, "Last request id is not set");
-    expect(await hotpot.requestIds(1)).to.equal(request_id, "Request ids array is not updated");
-    [fulfilled_, exists_, ] = await hotpot.chainlinkRequests(request_id);
+
+    if (NO_CHAINLINK) {
+      [fulfilled_, exists_, ] = await hotpot.randomRequests(request_id);
+    }
+    else {
+      expect(await hotpot.requestIds(1)).to.equal(request_id, "Request ids array is not updated");
+      [fulfilled_, exists_, ] = await hotpot.chainlinkRequests(request_id);
+    }
     expect(fulfilled_).to.equal(false, "The request should not be fulfilled before waiting");
     expect(exists_).to.equal(true, "Request should exist");
 
     //  Manually fulfill the request
-    await VRFCoordinator.fulfillRandomWords(request_id, VRFV2Wrapper.target);
+    if (NO_CHAINLINK) {
+      const salt = generateRandomSalt();
+      await hotpot.connect(owner).fulfillRandomWords(request_id, salt);  
+      [fulfilled_after,,] = await hotpot.randomRequests(request_id);
+    }
+    else {
+      await VRFCoordinator.fulfillRandomWords(request_id, VRFV2Wrapper.target);
+      [fulfilled_after,,] = await hotpot.chainlinkRequests(request_id);
+    }
 
     // Ensure the request is fulfilled
-    [fulfilled_after,,] = await hotpot.chainlinkRequests(request_id);
     expect(fulfilled_after).to.equal(true, "The request should be already fulfilled");
 
     /*
@@ -694,13 +745,7 @@ describe("Hotpot", function () {
     );
   });
 
-  // TODO: check 2 hotpot raffle executions
-
   // TODO: pause and check that actions are unavailable. only owner can pause
-
   // TODO: calculate coverage
-
-  // TODO: complete the marketplace contract and integrate it in tests
-
   // TODO: add a test case for upgrading the implementation
 });
