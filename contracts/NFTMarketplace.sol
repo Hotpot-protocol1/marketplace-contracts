@@ -5,7 +5,6 @@ import "@openzeppelin/contracts/token/ERC721/IERC721.sol";
 import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "./interface/IHotpot.sol";
-import "hardhat/console.sol"; // TODO: remove import
 
 contract Marketplace is ReentrancyGuard, Ownable {
 
