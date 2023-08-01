@@ -133,6 +133,11 @@ contract Hotpot is IHotpot, OwnableUpgradeable, PausableUpgradeable, VRFV2Wrappe
         emit Claim(user, prize.amount);
     }
 
+    function canClaim(address user) external view returns(bool) {
+        Prize memory prize = claimablePrizes[user];
+        return prize.amount > 0 && block.timestamp < prize.deadline;
+    }
+
     function getWinningTicketIds(uint16 _potId) external view returns(uint32[] memory) {
         return winningTicketIds[_potId];
     }

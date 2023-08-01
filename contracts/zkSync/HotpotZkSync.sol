@@ -2,9 +2,11 @@
 pragma solidity ^0.8.19;
 import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import {PausableUpgradeable} from "@openzeppelin/contracts-upgradeable/security/PausableUpgradeable.sol";
-import {IHotpotXDC} from "../interface/IHotpotXDC.sol";
+import {IHotpotZkSync} from "../interface/IHotpotZkSync.sol";
+import "@matterlabs/zksync-contracts/l2/system-contracts/Constants.sol";
+import {ISystemContext} from "@matterlabs/zksync-contracts/l2/system-contracts/interfaces/ISystemContext.sol";
 
-contract HotpotXDC is IHotpotXDC, OwnableUpgradeable, PausableUpgradeable {
+contract HotpotZkSync is IHotpotZkSync, OwnableUpgradeable, PausableUpgradeable {
     uint256 public potLimit;
     uint256 public currentPotSize;
     uint256 public raffleTicketCost;
@@ -109,9 +111,10 @@ contract HotpotXDC is IHotpotXDC, OwnableUpgradeable, PausableUpgradeable {
         require(address(this).balance >= _potLimit, "The pot is not filled");
 
         uint sum = 0;
+        uint256 blockTimestamp = ISystemContext(SYSTEM_CONTEXT_CONTRACT).getBlockTimestamp();
         for(uint i; i < _amounts.length; i++) {
             Prize storage userPrize = claimablePrizes[_winners[i]];
-            userPrize.deadline = uint128(block.timestamp + claimWindow);
+            userPrize.deadline = uint128(blockTimestamp + claimWindow);
             userPrize.amount = userPrize.amount + _amounts[i];
             sum += _amounts[i];
         }
@@ -123,11 +126,13 @@ contract HotpotXDC is IHotpotXDC, OwnableUpgradeable, PausableUpgradeable {
     function claim() external whenNotPaused {
         address payable user = payable(msg.sender);
         Prize memory prize = claimablePrizes[user];
+        uint256 blockTimestamp = ISystemContext(SYSTEM_CONTEXT_CONTRACT).getBlockTimestamp();
         require(prize.amount > 0, "No available winnings");
-        require(block.timestamp < prize.deadline, "Claim window is closed");
+        require(blockTimestamp < prize.deadline, "Claim window is closed");
 
         claimablePrizes[user].amount = 0; 
-        user.transfer(prize.amount);
+        (bool success,) = user.call{value: prize.amount}("");
+        require(success, "Call unsuccessful");
         emit Claim(user, prize.amount);
     }
 
@@ -254,7 +259,8 @@ contract HotpotXDC is IHotpotXDC, OwnableUpgradeable, PausableUpgradeable {
     }
 
     function _generateRandomFromSalt(uint256 _salt) internal view returns(uint256 _random) {
-        return uint256(keccak256(abi.encode(_salt, block.timestamp)));
+        uint256 blockTimestamp = ISystemContext(SYSTEM_CONTEXT_CONTRACT).getBlockTimestamp();
+        return uint256(keccak256(abi.encode(_salt, blockTimestamp)));
     }
 
     function _normalizeValueToRange(
