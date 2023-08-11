@@ -12,16 +12,7 @@ interface IMarketplace {
         bool sold;
     }
 
-    event OrderFulfilled(
-        uint itemId,
-        address indexed nft,
-        uint tokenId,
-        uint price,
-        address indexed seller,
-        address indexed buyer
-    );
     event RaffleTradeFeeChanged(uint16 _newTradeFee);
     event RaffleAddressSet(address _raffleAddress);
 
-    function fulfillOrder() external;
 }
