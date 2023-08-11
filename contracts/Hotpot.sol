@@ -23,8 +23,8 @@ contract Hotpot is IHotpot, OwnableUpgradeable, PausableUpgradeable, VRFV2Wrappe
     uint32 public potTicketIdEnd; // end of current pot ticket range
     uint32 public nextPotTicketIdStart;
     uint16 public currentPotId;
-    address private marketplace;
-    address private operator;
+    address public marketplace;
+    address public operator;
     uint256 constant MULTIPLIER = 10000;
 
     modifier onlyMarketplace() {
@@ -163,6 +163,10 @@ contract Hotpot is IHotpot, OwnableUpgradeable, PausableUpgradeable, VRFV2Wrappe
     function setPotLimit(uint256 _newPotLimit) external onlyOwner {
         require(potLimit != _newPotLimit, "Pot limit must be different");
         potLimit = _newPotLimit;
+    }
+
+    function setTradeFee(uint16 _newTradeFee) external onlyMarketplace {
+        tradeFee = _newTradeFee;
     }
     
     function _generateTickets(

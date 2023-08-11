@@ -66,4 +66,6 @@ interface IHotpot {
         uint128[] calldata _amounts) external;
 
     function claim() external;
+    function setTradeFee(uint16 _newTradeFee) external;
+    function marketplace() external returns(address);
 }
