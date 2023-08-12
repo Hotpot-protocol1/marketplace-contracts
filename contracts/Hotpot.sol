@@ -57,6 +57,7 @@ contract Hotpot is IHotpot, OwnableUpgradeable, PausableUpgradeable, VRFV2Wrappe
         potTicketIdEnd = 1;
         lastRequestId = 1;
         currentPotId = 1;
+        nextPotTicketIdStart = 2; // first ticket of the first pot
         marketplace = params.marketplace;
         operator = params.operator;
     }
@@ -148,10 +149,8 @@ contract Hotpot is IHotpot, OwnableUpgradeable, PausableUpgradeable, VRFV2Wrappe
         emit MarketplaceUpdated(_newMarketplace);
     }
 
-    function setOperator(address _newOperator) external onlyOwner {
-        require(operator != _newOperator, "Address didn't change");
+    function setOperator(address _newOperator) external onlyMarketplace {
         operator = _newOperator;
-        emit OperatorUpdated(_newOperator);
     }
 
     function setRaffleTicketCost(uint256 _newRaffleTicketCost) external onlyOwner {

@@ -14,5 +14,6 @@ interface IMarketplace {
 
     event RaffleTradeFeeChanged(uint16 _newTradeFee);
     event RaffleAddressSet(address _raffleAddress);
+    event OperatorChanged(address _newOperator);
 
 }

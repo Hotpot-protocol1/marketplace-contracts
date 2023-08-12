@@ -4,7 +4,8 @@ interface IOrderFulfiller {
         OfferItem offerItem;
         RoyaltyData royalty;
         PendingAmountData pendingAmountsData;
-        bytes offerSignature;
+        uint256 salt;
+        bytes orderSignature;
         bytes pendingAmountsSignature;
     }
 
@@ -23,10 +24,21 @@ interface IOrderFulfiller {
     struct PendingAmountData {
         uint256 offererPendingAmount;
         uint256 buyerPendingAmount;
-        bytes32 offerHash;
+        bytes32 orderHash;
     }
 
-    event OrderFulfilled();
+    struct OrderStatus {
+        bool isFulfilled;
+        bool isCancelled;
+    }
+
+    event OrderFulfilled(
+        address offerer,
+        address buyer,
+        address offerToken,
+        uint256 tokenId,
+        uint256 tradeAmount
+    );
 
     function fulfillOrder(OrderParameters memory parameters) external payable;
 
