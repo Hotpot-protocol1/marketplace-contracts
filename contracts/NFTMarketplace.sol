@@ -23,7 +23,7 @@ contract Marketplace is
     address public operator;
 
     // Status
-    mapping(bytes32 => OrderStatus) orderStatus; // order hash => OrderStatus
+    mapping(bytes32 => OrderStatus) private orderStatus; // order hash => OrderStatus
 
     /* 
         EIP712
@@ -138,7 +138,29 @@ contract Marketplace is
             buyer,
             offerItem.offerToken,
             offerItem.offerTokenId,
-            tradeAmount
+            tradeAmount,
+            _orderHash
+        );
+    }
+
+    function cancelOrder(PureOrder memory order)
+        external
+        nonReentrant
+    {
+        require(msg.sender == order.offerer, "Caller must be orderer");
+        /* 
+            Obtain order hash and validate status
+         */
+        bytes32 _hash = _calculatePureOrderTypedHash(order);
+        OrderStatus storage _orderStatus = orderStatus[_hash];
+        require(!_orderStatus.isCancelled, "Order is already cancelled");
+        require(!_orderStatus.isFulfilled, "Cannot cancel fulfilled order");
+        _orderStatus.isCancelled = true;
+        emit OrderCancelled(
+            order.offerer,
+            order.offerItem.offerToken,
+            order.offerItem.offerTokenId,
+            _hash
         );
     }
 
@@ -202,6 +224,21 @@ contract Marketplace is
             _calculateRoyaltyDataHashStruct(parameters.royalty),
             parameters.salt
         ));
+    }
+
+    function _calculatePureOrderTypedHash(PureOrder memory order) 
+        internal 
+        view
+        returns(bytes32 _orderHash) 
+    {
+        bytes32 hashStruct = keccak256(abi.encode(
+            ORDER_TYPEHASH,
+            order.offerer,
+            _calculateOfferItemHashStruct(order.offerItem),
+            _calculateRoyaltyDataHashStruct(order.royalty),
+            order.salt
+        ));
+        _orderHash = _hashTypedDataV4(hashStruct);
     }
 
     function _calculateOfferItemHashStruct(OfferItem memory offerItem) 

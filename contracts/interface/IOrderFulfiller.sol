@@ -9,6 +9,14 @@ interface IOrderFulfiller {
         bytes pendingAmountsSignature;
     }
 
+    // Order without pending amounts
+    struct PureOrder { 
+        address payable offerer;
+        OfferItem offerItem;
+        RoyaltyData royalty;
+        uint256 salt;
+    }
+
     struct OfferItem {
         address offerToken;
         uint256 offerTokenId;
@@ -37,7 +45,14 @@ interface IOrderFulfiller {
         address buyer,
         address offerToken,
         uint256 tokenId,
-        uint256 tradeAmount
+        uint256 tradeAmount,
+        bytes32 orderHash
+    );
+    event OrderCancelled(
+        address offerer,
+        address offerToken,
+        uint256 tokenId,
+        bytes32 orderHash
     );
 
     function fulfillOrder(OrderParameters memory parameters) external payable;
