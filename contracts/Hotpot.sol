@@ -12,6 +12,7 @@ contract Hotpot is IHotpot, OwnableUpgradeable, PausableUpgradeable, VRFV2Wrappe
     mapping(address => Prize) public claimablePrizes;
     mapping(uint256 => RequestStatus) public chainlinkRequests;
     mapping(uint16 => uint32[]) public winningTicketIds;
+    mapping(uint16 => uint128) public prizeAmounts;  // winner id => prize amount. For example, first winner gets 5ETH, second winner - 1 ETH, etc.
     uint256[] public requestIds;
     uint256 public lastRequestId;
     uint128 private claimWindow;
@@ -103,24 +104,23 @@ contract Hotpot is IHotpot, OwnableUpgradeable, PausableUpgradeable, VRFV2Wrappe
     }
 
     function executeRaffle(
-        address[] calldata _winners,
-        uint128[] calldata _amounts
+        address[] calldata _winners
     ) external onlyOperator {
         uint _potLimit = potLimit;
-        require(_winners.length == _amounts.length, "Winners and their amounts mismatch");
         require(_winners.length == numberOfWinners, "Must be equal to numberofWinners");
         require(address(this).balance >= _potLimit, "The pot is not filled");
 
         uint sum = 0;
-        for(uint i; i < _amounts.length; i++) {
+        for(uint16 i; i < _winners.length; i++) {
+            uint128 _prizeAmount = prizeAmounts[i];
             Prize storage userPrize = claimablePrizes[_winners[i]];
             userPrize.deadline = uint128(block.timestamp + claimWindow);
-            userPrize.amount = userPrize.amount + _amounts[i];
-            sum += _amounts[i];
+            userPrize.amount = userPrize.amount + _prizeAmount;
+            sum += _prizeAmount;
         }
         require(sum <= _potLimit);
 
-        emit WinnersAssigned(_winners, _amounts);
+        emit WinnersAssigned(_winners);
     }
 
     function claim() external whenNotPaused {
@@ -166,6 +166,28 @@ contract Hotpot is IHotpot, OwnableUpgradeable, PausableUpgradeable, VRFV2Wrappe
 
     function setTradeFee(uint16 _newTradeFee) external onlyMarketplace {
         tradeFee = _newTradeFee;
+    }
+
+    function updateNumberOfWinners(uint16 _nOfWinners) 
+        external 
+        onlyOwner 
+    {
+        require(numberOfWinners != _nOfWinners, 
+            "Number of winners is currently the same");
+        numberOfWinners = _nOfWinners;
+        emit NumberOfWinnersUpdated(_nOfWinners);
+    }
+
+    function updatePrizeAmounts(uint128[] memory _newPrizeAmounts)
+        external 
+        onlyOwner 
+    {
+        for (uint16 i = 0; i < _newPrizeAmounts.length; i++) {
+            if (prizeAmounts[i] != _newPrizeAmounts[i]) {
+                prizeAmounts[i] = _newPrizeAmounts[i];
+            }
+        }
+        emit PrizeAmountsUpdated(_newPrizeAmounts);
     }
     
     function _generateTickets(
@@ -253,13 +275,15 @@ contract Hotpot is IHotpot, OwnableUpgradeable, PausableUpgradeable, VRFV2Wrappe
             nextRandomNormalized = _normalizeValueToRange(nextRandom, rangeFrom, rangeTo);
             derivedRandomWords[i] = _incrementRandomValueUntilUnique(
                 nextRandomNormalized,
-                derivedRandomWords
+                derivedRandomWords,
+                rangeFrom,
+                rangeTo
             );
         }
 
         winningTicketIds[currentPotId] = derivedRandomWords;
-        currentPotId++;
         emit RandomnessFulfilled(currentPotId, randomWord);
+        currentPotId++;
     }
 
     function _normalizeValueToRange(
@@ -269,13 +293,20 @@ contract Hotpot is IHotpot, OwnableUpgradeable, PausableUpgradeable, VRFV2Wrappe
     }
 
     function _incrementRandomValueUntilUnique(
-        uint32 _random, uint32[] memory _randomWords
+        uint32 _random, 
+        uint32[] memory _randomWords, 
+        uint32 _rangeFrom,
+        uint32 _rangeTo
     ) internal pure returns(uint32 _uniqueRandom) {
         _uniqueRandom = _random;
         for(uint i = 0; i < _randomWords.length;) {
             if(_uniqueRandom == _randomWords[i]) {
                 unchecked {
-                    _uniqueRandom++;
+                    _uniqueRandom = _normalizeValueToRange(
+                        _uniqueRandom + 1,
+                        _rangeFrom,
+                        _rangeTo
+                    );
                     i = 0;
                 }
             }

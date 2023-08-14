@@ -34,10 +34,7 @@ interface IHotpot {
 		uint256 _buyerPendingAmount,
 		uint256 _sellerPendingAmount
 	);
-    event WinnersAssigned(
-        address[] _winners, 
-        uint128[] _amounts
-    );
+    event WinnersAssigned(address[] _winners);
     event RandomWordRequested(
         uint256 requestId, 
         uint32 fromTicketId, 
@@ -50,6 +47,8 @@ interface IHotpot {
     event Claim(address indexed user, uint256 amount);
     event MarketplaceUpdated(address _newMarketplace);
     event OperatorUpdated(address _newOperator);
+    event PrizeAmountsUpdated(uint128[] _newPrizeAmounts);
+    event NumberOfWinnersUpdated(uint16 _nOfWinners);
 
     function initialize(address _owner, InitializeParams calldata params) external;
 
@@ -61,9 +60,7 @@ interface IHotpot {
         uint256 _sellerPendingAmount
     ) external payable;
 
-    function executeRaffle(
-        address[] calldata _winners,
-        uint128[] calldata _amounts) external;
+    function executeRaffle(address[] calldata _winners) external;
 
     function claim() external;
     function setTradeFee(uint16 _newTradeFee) external;
