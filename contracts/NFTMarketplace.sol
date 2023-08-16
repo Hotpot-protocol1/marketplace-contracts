@@ -56,6 +56,8 @@ contract Marketplace is
         external 
         initializer
     {
+        __ReentrancyGuard_init();
+        __Ownable_init();
         __EIP712_init("Hotpot", "0.1.0");
         raffleTradeFee = _raffleTradeFee;
         operator = _operator;
