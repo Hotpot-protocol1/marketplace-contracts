@@ -182,6 +182,8 @@ contract Hotpot is IHotpot, OwnableUpgradeable, PausableUpgradeable, VRFV2Wrappe
         external 
         onlyOwner 
     {
+        require(_newPrizeAmounts.length == numberOfWinners, 
+            "Array length doesnt match the number of winners");
         for (uint16 i = 0; i < _newPrizeAmounts.length; i++) {
             if (prizeAmounts[i] != _newPrizeAmounts[i]) {
                 prizeAmounts[i] = _newPrizeAmounts[i];
