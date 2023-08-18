@@ -117,8 +117,10 @@ contract Marketplace is
             );
 
             // Transfer royalty
-            (success,) = royalty.royaltyRecipient.call{value: royaltyAmount}("");
-            require(success);
+            if (royalty.royaltyRecipient != address(0) && royaltyAmount > 0) {
+                (success,) = royalty.royaltyRecipient.call{value: royaltyAmount}("");
+                require(success);
+            }
         }
         
         /* 

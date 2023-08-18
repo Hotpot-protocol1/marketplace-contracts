@@ -1,8 +1,5 @@
 const { ethers } = require('hardhat');
 const LINK_MAINNET = "0x514910771AF9Ca656af840dff83E8264EcF986CA";
-const VRF_WRAPPER_MAINNET = "0x5A861794B927983406fCE1D062e00b9368d97Df6";
-require("dotenv").config();
-const { STAGE, SEPOLIA_VRF_V2_WRAPPER, LINK_TOKEN_SEPOLIA } = process.env;
 
 async function deployVRFContracts() {
   /* 
@@ -65,42 +62,21 @@ async function fundSubscription(VRFCoordinator) {
 }
 
 async function deployHotpotImplementation() {
-  let V3Aggregator; 
-  let VRFCoordinator; 
-  let VRFV2Wrapper;
-  let vrf_v2_wrapper_address;
-  let LINK_address;
-  let hotpot_impl;
 
-  if (STAGE == "FORK_TESTING") {
-    const vrf_contracts = await deployVRFContracts();
-    V3Aggregator = vrf_contracts.V3Aggregator;
-    VRFCoordinator = vrf_contracts.VRFCoordinator;
-    VRFV2Wrapper = vrf_contracts.VRFV2Wrapper;
+  const vrf_contracts = await deployVRFContracts();
+  let V3Aggregator = vrf_contracts.V3Aggregator;
+  let VRFCoordinator = vrf_contracts.VRFCoordinator;
+  let VRFV2Wrapper = vrf_contracts.VRFV2Wrapper;
 
-    VRFV2Wrapper = await configureVRFV2Wrapper(VRFV2Wrapper);
-    VRFCoordinator = await fundSubscription(VRFCoordinator);
-    vrf_v2_wrapper_address = VRFV2Wrapper.target;
-    LINK_address = LINK_MAINNET;
-  }
-  else if (STAGE == "LOCAL_DEPLOYMENT ") {
-    vrf_v2_wrapper_address = VRF_WRAPPER_MAINNET;
-    LINK_address = LINK_MAINNET;
-  }
-  else if(STAGE == "TESTNET_DEPLOYMENT") {
-    vrf_v2_wrapper_address = SEPOLIA_VRF_V2_WRAPPER;
-    LINK_address = LINK_TOKEN_SEPOLIA;
-  }
+  VRFV2Wrapper = await configureVRFV2Wrapper(VRFV2Wrapper);
+  VRFCoordinator = await fundSubscription(VRFCoordinator);
+  const vrf_v2_wrapper_address = VRFV2Wrapper.target;
+  const LINK_address = LINK_MAINNET;
 
-  if (STAGE == "XDC_FORK_TESTING") {
-    hotpot_impl = await ethers.deployContract("HotpotXDC");
-  }
-  else {
-    hotpot_impl = await ethers.deployContract("Hotpot", [
-      LINK_address,
-      vrf_v2_wrapper_address
-    ]);
-  }
+  const hotpot_impl = await ethers.deployContract("Hotpot", [
+    LINK_address,
+    vrf_v2_wrapper_address
+  ]);
   await hotpot_impl.waitForDeployment();
 
   console.log(

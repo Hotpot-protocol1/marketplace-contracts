@@ -21,12 +21,8 @@ const {
 const { tradeToFillThePot } = require("../scripts/utils/tradeToFillThePot.js");
 const { deployMarketplace } = require('../scripts/deploy/Marketplace');
 const { mintAndListNewItem } = require('../scripts/utils/mintAndListNewItem');
-const { generateRandomSalt } = require('../scripts/utils/generateRandomSalt');
 require("dotenv").config();
-const { STAGE } = process.env;
 
-const NO_CHAINLINK = STAGE == "XDC_FORK_TESTING";
-const IS_XDC = STAGE == "XDC_FORK_TESTING";
 
 describe("Hotpot", function () {
   async function deployEverythingFixture() {
@@ -43,7 +39,8 @@ describe("Hotpot", function () {
     const beacon_address = await factory.beacon();
     const beacon = await ethers.getContractAt("UpgradeableBeacon", 
       beacon_address.toString());
-    const marketplace = await deployMarketplace();
+    const operator_address = await owner.getAddress();
+    const marketplace = await deployMarketplace(operator_address);
 
     /*
       Deploying the first Hotpot 
@@ -56,26 +53,19 @@ describe("Hotpot", function () {
       fee: INITIAL_POT_FEE,
       tradeFee: TRADE_FEE,
       marketplace: marketplace.target,
-      operator: await owner.getAddress()
+      operator: operator_address
     }
 
     await factory.connect(owner).deployHotpot(init_params);
     const hotpot_address = await factory.hotpots(0);
-    let hotpot;
-    if (IS_XDC) {
-      hotpot = await ethers.getContractAt("HotpotXDC", hotpot_address);
-    }
-    else {
-      hotpot = await ethers.getContractAt("Hotpot", hotpot_address);
-    }
+    const hotpot = await ethers.getContractAt("Hotpot", hotpot_address);
+    // Configuring Marketplace
     await marketplace.setRaffleAddress(hotpot_address);
 
     /*
       Funding the Hotpot with LINK 
      */
-    if (!NO_CHAINLINK) {
-      await dealLINKToAddress(hotpot.target, LINK_FUNDING); // 5k LINK should be enough
-    }
+    await dealLINKToAddress(hotpot.target, LINK_FUNDING); // 5k LINK should be enough
 
     return { factory, hotpot_impl, owner, otherAccount, beacon, marketplace,
     hotpot, V3Aggregator, VRFCoordinator, VRFV2Wrapper};
