@@ -23,23 +23,15 @@ contract TestVerify is EIP712("Hotpot", "0.1.0") {
     function foo(
         bytes memory signature,
         address payable offerer,
-        address offerToken,
-        uint256 offerTokenId,
-        uint256 offerAmount, // the amount of ether for the offerer
-        uint256 endTime,
-        uint256 royaltyPercent,
-        address royaltyRecipient,
+        IOrderFulfiller.OfferItem memory offerItem,
+        IOrderFulfiller.RoyaltyData memory royalty,
         uint256 salt
     ) external view returns(bool) {
         _validateOrderData(
             offerer, 
-            offerToken, 
-            offerTokenId, 
-            offerAmount, 
-            endTime,
-            royaltyPercent,
-            royaltyRecipient,
-            salt, 
+            offerItem,
+            royalty,
+            salt,
             signature
         );
         return true;
@@ -47,13 +39,9 @@ contract TestVerify is EIP712("Hotpot", "0.1.0") {
 
     function _validateOrderData(
         address payable offerer,
-        address offerToken,
-        uint256 offerTokenId,
-        uint256 offerAmount,
-        uint256 endTime,
-        uint256 royaltyPercent,
-        address royaltyRecipient,
-        uint256 salt, 
+        IOrderFulfiller.OfferItem memory offerItem,
+        IOrderFulfiller.RoyaltyData memory royalty,
+        uint256 salt,
         bytes memory signature
     ) 
         internal
@@ -62,12 +50,8 @@ contract TestVerify is EIP712("Hotpot", "0.1.0") {
     {
         orderHash = _hashTypedDataV4(_calculateOrderHashStruct(
             offerer,
-            offerToken, 
-            offerTokenId, 
-            offerAmount, 
-            endTime,
-            royaltyPercent,
-            royaltyRecipient,
+            offerItem,
+            royalty,
             salt
         ));
         address orderSigner = ECDSA.recover(orderHash, signature);
@@ -78,12 +62,8 @@ contract TestVerify is EIP712("Hotpot", "0.1.0") {
 
     function _calculateOrderHashStruct(
         address payable offerer,
-        address offerToken,
-        uint256 offerTokenId,
-        uint256 offerAmount,
-        uint256 endTime,
-        uint256 royaltyPercent,
-        address royaltyRecipient,
+        IOrderFulfiller.OfferItem memory offerItem,
+        IOrderFulfiller.RoyaltyData memory royalty,
         uint256 salt
     ) 
         internal 
@@ -93,19 +73,14 @@ contract TestVerify is EIP712("Hotpot", "0.1.0") {
         return keccak256(abi.encode(
             ORDER_TYPEHASH,
             offerer,
-            _calculateOfferItemHashStruct(
-                offerToken, offerTokenId, offerAmount, endTime
-            ),
-            _calculateRoyaltyDataHashStruct(royaltyPercent, royaltyRecipient),
+            _calculateOfferItemHashStruct(offerItem),
+            _calculateRoyaltyDataHashStruct(royalty),
             salt
         ));
     }
 
     function _calculateOfferItemHashStruct(
-        address offerToken,
-        uint256 offerTokenId,
-        uint256 offerAmount,
-        uint256 endTime
+        IOrderFulfiller.OfferItem memory offerItem
     ) 
         internal
         pure
@@ -113,16 +88,15 @@ contract TestVerify is EIP712("Hotpot", "0.1.0") {
     {
         return keccak256(abi.encode(
             OFFER_ITEM_TYPEHASH,
-            offerToken,
-            offerTokenId,
-            offerAmount,
-            endTime 
+            offerItem.offerToken,
+            offerItem.offerTokenId,
+            offerItem.offerAmount,
+            offerItem.endTime
         ));
     }
 
     function _calculateRoyaltyDataHashStruct(
-        uint256 royaltyPercent,
-        address royaltyRecipient
+        IOrderFulfiller.RoyaltyData memory royalty
     ) 
         internal
         pure
@@ -130,8 +104,8 @@ contract TestVerify is EIP712("Hotpot", "0.1.0") {
     {
         return keccak256(abi.encode(
             ROYALTY_DATA_TYPEHASH,
-            royaltyPercent,
-            royaltyRecipient
+            royalty.royaltyPercent,
+            royalty.royaltyRecipient
         ));
     }
 }
