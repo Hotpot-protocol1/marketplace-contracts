@@ -739,3 +739,10 @@ describe("Hotpot", function () {
   // TODO: calculate coverage
   // TODO: add a test case for upgrading the implementation
 });
+
+// TODO listing after deadline cannot be fulfilled
+// TODO test when offerer fulfills his own offer
+// TODO test cancel order. Order cannot be fulfilled after cancel
+// TODO fulfill order and check its status
+// TODO check balances after fulfill order
+// TODO 
