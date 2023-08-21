@@ -16,8 +16,8 @@ contract TestVerify is EIP712("Hotpot", "0.1.0") {
         "Order(address offerer,OfferItem offerItem,RoyaltyData royalty,uint256 salt)OfferItem(address offerToken,uint256 offerTokenId,uint256 offerAmount,uint256 endTime)RoyaltyData(uint256 royaltyPercent,address royaltyRecipient)"
     );
 
-    constructor() {
-        DOMAIN_SEPARATOR = _domainSeparatorV4();
+    constructor(bytes32 domain_separator) {
+        DOMAIN_SEPARATOR = domain_separator;
     }
 
     function foo(
