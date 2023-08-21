@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.19;
-import {EIP712, ECDSA} from "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
+import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
 import {IOrderFulfiller} from "../interface/IOrderFulfiller.sol";
 
 
-contract TestVerify is EIP712("Hotpot", "0.1.0") {
+contract TestVerify {
     bytes32 public DOMAIN_SEPARATOR;
     bytes32 constant OFFER_ITEM_TYPEHASH = keccak256(
         "OfferItem(address offerToken,uint256 offerTokenId,uint256 offerAmount,uint256 endTime)"
@@ -35,6 +35,10 @@ contract TestVerify is EIP712("Hotpot", "0.1.0") {
             signature
         );
         return true;
+    }
+
+    function _hashTypedDataV4(bytes32 structHash) internal view virtual returns (bytes32) {
+        return ECDSA.toTypedDataHash(DOMAIN_SEPARATOR, structHash);
     }
 
     function _validateOrderData(
