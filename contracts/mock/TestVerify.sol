@@ -20,60 +20,118 @@ contract TestVerify is EIP712("Hotpot", "0.1.0") {
         DOMAIN_SEPARATOR = _domainSeparatorV4();
     }
 
-    function foo(bytes memory signature, IOrderFulfiller.PureOrder memory order) external view returns(bool) {
-        _validateOrderData(order, signature);
+    function foo(
+        bytes memory signature,
+        address payable offerer,
+        address offerToken,
+        uint256 offerTokenId,
+        uint256 offerAmount, // the amount of ether for the offerer
+        uint256 endTime,
+        uint256 royaltyPercent,
+        address royaltyRecipient,
+        uint256 salt
+    ) external view returns(bool) {
+        _validateOrderData(
+            offerer, 
+            offerToken, 
+            offerTokenId, 
+            offerAmount, 
+            endTime,
+            royaltyPercent,
+            royaltyRecipient,
+            salt, 
+            signature
+        );
         return true;
     }
 
-    function _validateOrderData(IOrderFulfiller.PureOrder memory parameters, bytes memory signature) 
+    function _validateOrderData(
+        address payable offerer,
+        address offerToken,
+        uint256 offerTokenId,
+        uint256 offerAmount,
+        uint256 endTime,
+        uint256 royaltyPercent,
+        address royaltyRecipient,
+        uint256 salt, 
+        bytes memory signature
+    ) 
         internal
         view
         returns(bytes32 orderHash)
     {
-        orderHash = _hashTypedDataV4(_calculateOrderHashStruct(parameters));
+        orderHash = _hashTypedDataV4(_calculateOrderHashStruct(
+            offerer,
+            offerToken, 
+            offerTokenId, 
+            offerAmount, 
+            endTime,
+            royaltyPercent,
+            royaltyRecipient,
+            salt
+        ));
         address orderSigner = ECDSA.recover(orderHash, signature);
         // validate signer
-        require(orderSigner == parameters.offerer, "Offerer address must be the signer");
-        require(msg.sender != parameters.offerer, "Signer cannot fulfill their own order");
+        require(orderSigner == offerer, "Offerer address must be the signer");
+        require(msg.sender != offerer, "Signer cannot fulfill their own order");
     }
 
-    function _calculateOrderHashStruct(IOrderFulfiller.PureOrder memory parameters) 
+    function _calculateOrderHashStruct(
+        address payable offerer,
+        address offerToken,
+        uint256 offerTokenId,
+        uint256 offerAmount,
+        uint256 endTime,
+        uint256 royaltyPercent,
+        address royaltyRecipient,
+        uint256 salt
+    ) 
         internal 
         pure
         returns(bytes32 _orderHash) 
     {
         return keccak256(abi.encode(
             ORDER_TYPEHASH,
-            parameters.offerer,
-            _calculateOfferItemHashStruct(parameters.offerItem),
-            _calculateRoyaltyDataHashStruct(parameters.royalty),
-            parameters.salt
+            offerer,
+            _calculateOfferItemHashStruct(
+                offerToken, offerTokenId, offerAmount, endTime
+            ),
+            _calculateRoyaltyDataHashStruct(royaltyPercent, royaltyRecipient),
+            salt
         ));
     }
 
-    function _calculateOfferItemHashStruct(IOrderFulfiller.OfferItem memory offerItem) 
+    function _calculateOfferItemHashStruct(
+        address offerToken,
+        uint256 offerTokenId,
+        uint256 offerAmount,
+        uint256 endTime
+    ) 
         internal
         pure
         returns(bytes32 _offerItemHash)
     {
         return keccak256(abi.encode(
             OFFER_ITEM_TYPEHASH,
-            offerItem.offerToken,
-            offerItem.offerTokenId,
-            offerItem.offerAmount,
-            offerItem.endTime 
+            offerToken,
+            offerTokenId,
+            offerAmount,
+            endTime 
         ));
     }
 
-    function _calculateRoyaltyDataHashStruct(IOrderFulfiller.RoyaltyData memory royaltyData) 
+    function _calculateRoyaltyDataHashStruct(
+        uint256 royaltyPercent,
+        address royaltyRecipient
+    ) 
         internal
         pure
         returns(bytes32 _royaltyHash) 
     {
         return keccak256(abi.encode(
             ROYALTY_DATA_TYPEHASH,
-            royaltyData.royaltyPercent,
-            royaltyData.royaltyRecipient
+            royaltyPercent,
+            royaltyRecipient
         ));
     }
 }
