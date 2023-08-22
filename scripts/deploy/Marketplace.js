@@ -11,7 +11,7 @@ async function deployMarketplace(operator_address) {
     TRADE_FEE,
     operator_address
   ]);
-  const marketplaceProxy = await ethers.deployContract("ERC1967Proxy", [
+  const marketplaceProxy = await ethers.deployContract("MarketplaceProxy", [
     MarketplaceImpl.target,
     initialize_calldata
   ]);

@@ -17,6 +17,15 @@ const listingTypes = {
   ],
 };
 
+const pendingAmountType = {
+  PendingAmountData: [
+    { name: 'offererPendingAmount', type: 'uint256' },
+    { name: 'buyerPendingAmount', type: 'uint256' },
+    { name: 'orderHash', type: 'bytes32' },
+  ],
+};
+
 module.exports = {
-  listingTypes
+  listingTypes,
+  pendingAmountType
 }

@@ -1,5 +1,4 @@
 const { ethers } = require('hardhat');
-const user4 = (await ethers.getSigners())[4];
 
 const INITIAL_POT_FEE = 1000; // 10%
 const TRADE_FEE = 1000; // 10%
@@ -11,7 +10,7 @@ const LINK_MAINNET = "0x514910771AF9Ca656af840dff83E8264EcF986CA";
 const INITIAL_CLAIM_WINDOW = 24 * 60 * 60; // one day
 const LINK_FUNDING = ethers.parseUnits("5000", 18);
 const ROYALTY_PERCENT = 50; // 0.5%
-const ROYALTY_RECIPIENT = await user4.getAddress();
+const ROYALTY_RECIPIENT_ID = 3;
 
 module.exports = {
   INITIAL_POT_FEE,
@@ -23,5 +22,6 @@ module.exports = {
   LINK_MAINNET,
   INITIAL_CLAIM_WINDOW,
   LINK_FUNDING,
-  ROYALTY_PERCENT
+  ROYALTY_PERCENT,
+  ROYALTY_RECIPIENT_ID
 }

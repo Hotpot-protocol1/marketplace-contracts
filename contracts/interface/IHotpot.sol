@@ -65,5 +65,6 @@ interface IHotpot {
     function claim() external;
     function setTradeFee(uint16 _newTradeFee) external;
     function setOperator(address _newOperator) external;
+    function updatePrizeAmounts(uint128[] memory _newPrizeAmounts) external;
     function marketplace() external returns(address);
 }

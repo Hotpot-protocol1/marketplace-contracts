@@ -16,11 +16,16 @@ const {
   INITIAL_POT_LIMIT,
   LINK_MAINNET,
   INITIAL_CLAIM_WINDOW,
-  LINK_FUNDING
+  LINK_FUNDING,
+  ROYALTY_PERCENT
 } = require("../scripts/utils/parameters.js");
 const { tradeToFillThePot } = require("../scripts/utils/tradeToFillThePot.js");
 const { deployMarketplace } = require('../scripts/deploy/Marketplace');
 const { mintAndListNewItem } = require('../scripts/utils/mintAndListNewItem');
+const { getTradeAmountFromPrice } = require('../scripts/utils/getTradeAmountFromPrice');
+const { getOrderHash } = require('../scripts/utils/getOrderHash.js');
+const { signPendingAmounts } = require('../scripts/utils/signPendingAmounts');
+const { getOrderParameters } = require('../scripts/utils/getOrderParameters');
 require("dotenv").config();
 
 
@@ -136,52 +141,6 @@ describe("Hotpot", function () {
     await expect(hotpot.initialize(owner_address, init_params)).to.be.revertedWith("Initializable: contract is already initialized");
   });
 
-  it('should list an nft', async function() {
-    const { 
-      factory, hotpot_impl, owner, 
-      otherAccount, marketplace, hotpot
-    } = await loadFixture(
-      deployEverythingFixture
-    );
-    const { nft_collection } = await loadFixture(deployCollectionFixture);
-
-    /*
-      Mint and Approve
-     */
-    const [, user1, user2] = await ethers.getSigners();
-    await nft_collection.mint(user1);
-    await nft_collection.mint(user2);
-    await nft_collection.connect(user1).approve(marketplace.target, 1);
-    await nft_collection.connect(user2).approve(marketplace.target, 2);
-    const price1 = ethers.parseEther("1.0");
-    const price2 = ethers.parseEther("2.0");
-
-    /* 
-      List
-     */
-    const listing1 = marketplace.connect(user1).makeItem(
-      nft_collection.target, 
-      1, 
-      price1
-    );
-    const listing2 = marketplace.connect(user2).makeItem(
-      nft_collection.target, 
-      2, 
-      price2
-    );
-
-    const item_id_1 = 1;
-    const item_id_2 = 2;
-    expect(listing1).to.emit(marketplace, "Offered").withArgs(
-      item_id_1,
-      nft_collection.target,
-      1,
-      price1,
-      user1
-    );
-    await listing1;
-  });
-
   it("should execute a trade", async function() {
     let { 
       factory, hotpot_impl, owner, 
@@ -197,20 +156,31 @@ describe("Hotpot", function () {
     /*
       Mint token, approve and list
      */
-    const token_id = 1;
     const price = ethers.parseEther("1.0");
-    const item_id = 1;
-    [user2, marketplace, nft_collection] = await mintAndListNewItem(
-      user2, marketplace, nft_collection, price
+    const end_time = 3692620407; // just some remote point in the future
+    const [signature, order_data] = await mintAndListNewItem(
+      user2, marketplace, nft_collection, price, end_time
+    );
+    const orderHash = getOrderHash(order_data, marketplace.target);
+    const [pa_signature, pending_amount_data] = await signPendingAmounts(
+      marketplace,
+      owner, // operator
+      0,
+      0,
+      orderHash
+    );
+    const orderParameters = getOrderParameters(
+      order_data, 
+      pending_amount_data,
+      signature,
+      pa_signature
     );
 
     /* 
       Trade
      */
-    const trade_fee = await hotpot.tradeFee();
-    const trade_amount = price * 
-      (BigInt(HUNDRED_PERCENT) + trade_fee) / BigInt(HUNDRED_PERCENT);
-    const trade = marketplace.connect(user1).purchaseItem(item_id, {
+    const trade_amount = getTradeAmountFromPrice(price);
+    const trade = marketplace.connect(user1).fulfillOrder(orderParameters, {
       value: trade_amount
     });
     /* 
@@ -233,13 +203,13 @@ describe("Hotpot", function () {
       0,
       0
     );
-    expect(trade).to.emit(marketplace, "Bought").withArgs(
-      item_id,
-      nft_collection.target,
-      token_id,
-      price,
+    expect(trade).to.emit(marketplace, "OrderFulfilled").withArgs(
       seller,
-      buyer
+      buyer,
+      order_data.offerItem.offerToken,
+      order_data.offerItem.offerTokenId,
+      trade_amount,
+      orderHash
     );
     await trade;
 
@@ -247,7 +217,8 @@ describe("Hotpot", function () {
       Check the currentPotSize and the balance of the Pot
      */
     // 1% of trade_amount
-    const expected_trade_fee = trade_amount - price;
+    const royalty_amount = price * BigInt(ROYALTY_PERCENT) / BigInt(HUNDRED_PERCENT);
+    const expected_trade_fee = trade_amount - price - royalty_amount;
     const pot_balance = await ethers.provider.getBalance(hotpot.target);
     expect(pot_balance).to.equal(expected_trade_fee, "Incorrect pot balance");
     // 90% of trade_fee
@@ -267,6 +238,10 @@ describe("Hotpot", function () {
       1 + expected_buyer_tickets + expected_seller_tickets,
        "Last raffle ticket id is not updated"
     );
+
+    // Check order status
+    const order_status = await marketplace.orderStatus(orderHash);
+    expect(order_status.isFulfilled).to.equal(true, "Order status is not updated");
 
     console.log("Pot balance and currentPotSize: ", 
       ethers.formatEther(pot_balance), ethers.formatEther(expected_pot_size));
@@ -308,31 +283,35 @@ describe("Hotpot", function () {
     /*
       List items
      */
+    const end_time = 3692620407; // just some remote point in the future
     const price1 = ethers.parseEther("480.15");
     const price2 = ethers.parseEther("670.0");
-    const item_id_1 = 1;
-    const item_id_2 = 2;
-    const trade_amount1 = price1 * 
-      (BigInt(HUNDRED_PERCENT) + trade_fee) / BigInt(HUNDRED_PERCENT);
-    const trade_amount2 = price2 * 
-      (BigInt(HUNDRED_PERCENT) + trade_fee) / BigInt(HUNDRED_PERCENT);
+    const trade_amount1 = getTradeAmountFromPrice(price1);
+    const trade_amount2 = getTradeAmountFromPrice(price2);
     
-    [user1, marketplace, nft_collection] = await mintAndListNewItem(
-      user1, marketplace, nft_collection, price1
+    const [signature1, order_data_1] = await mintAndListNewItem(
+      user1, marketplace, nft_collection, price1, end_time
     );
-    [user1, marketplace, nft_collection] = await mintAndListNewItem(
-      user1, marketplace, nft_collection, price2
+    const buyer_pending_amount = ethers.parseEther("0.02");
+    const order_1_hash = getOrderHash(order_data_1, marketplace.target);
+    const [pa_signature_1, pending_amount_data_1] = await signPendingAmounts(
+      marketplace,
+      owner, // operator
+      0,
+      buyer_pending_amount,
+      order_1_hash
     );
-    // Ensure listed
-    expect(await marketplace.activeItemCount()).to.equal(2, "Unexpected items count");
-    const [order_1, order_2] = await marketplace.getAllListedNfts();
-    expect(order_2.sold).to.equal(false, "Item should not be sold");
-    expect(order_2.price).to.equal(price2, "Order 2 price is incorrectly set");
+    const order_1_parameters = getOrderParameters(
+      order_data_1, 
+      pending_amount_data_1,
+      signature1,
+      pa_signature_1
+    );
     
     /* 
       Trade
      */
-    const trade = marketplace.connect(user2).purchaseItem(item_id_1, {
+    const trade = marketplace.connect(user2).fulfillOrder(order_1_parameters, {
       value: trade_amount1
     });
 
@@ -349,7 +328,7 @@ describe("Hotpot", function () {
       buyer_id_end,
       seller_id_start,
       seller_id_end,
-      0,
+      buyer_pending_amount,
       0
     );
     await trade;
@@ -363,7 +342,7 @@ describe("Hotpot", function () {
       Check the currentPotSize and the balance of the Pot
      */
     // 1% of trade_amount
-    const expected_trade_fee = trade_amount1 - price1; 
+    const expected_trade_fee = price1 * BigInt(TRADE_FEE) / BigInt(HUNDRED_PERCENT); 
     // 90% of trade_fee
     const expected_pot_size = expected_trade_fee * 
       BigInt(HUNDRED_PERCENT - INITIAL_POT_FEE) / BigInt(HUNDRED_PERCENT); // should be around 45ETH
@@ -378,7 +357,26 @@ describe("Hotpot", function () {
       ___________________________________ 
      */
 
-    const trade2 = marketplace.connect(user2).purchaseItem(item_id_2, {
+    const [signature2, order_data_2] = await mintAndListNewItem(
+      user1, marketplace, nft_collection, price2, end_time
+    );
+    const offerer_pending_amount = ethers.parseEther("0.01");
+    const order_2_hash = getOrderHash(order_data_1, marketplace.target);
+    const [pa_signature_2, pending_amount_data_2] = await signPendingAmounts(
+      marketplace,
+      owner, // operator
+      offerer_pending_amount,
+      buyer_pending_amount,
+      order_2_hash
+    );
+    const order_2_parameters = getOrderParameters(
+      order_data_2, 
+      pending_amount_data_2,
+      signature2,
+      pa_signature_2
+    );
+    const token_id_2 = 2;
+    const trade2 = marketplace.connect(user2).fulfillOrder(order_2_parameters, {
       value: trade_amount2
     });
 
@@ -396,8 +394,16 @@ describe("Hotpot", function () {
       buyer_id_end,
       seller_id_start,
       seller_id_end,
-      0,
-      0
+      buyer_pending_amount,
+      offerer_pending_amount
+    );
+    expect(trade2).to.emit(marketplace, "OrderFulfilled").withArgs(
+      seller,
+      buyer,
+      nft_collection.target,
+      token_id_2,
+      trade_amount2,
+      order_2_hash
     );
     await trade2;
 
@@ -411,7 +417,7 @@ describe("Hotpot", function () {
       Check the currentPotSize and the balance of the Pot
      */
     // 1% of trade_amount
-    const expected_trade2_fee = trade_amount2 - price2;
+    const expected_trade2_fee = price2 * BigInt(TRADE_FEE) / BigInt(HUNDRED_PERCENT);
     // 90% of trade_fee
     const trade_2_pot_delta = expected_trade2_fee * 
       BigInt(HUNDRED_PERCENT - INITIAL_POT_FEE) / BigInt(HUNDRED_PERCENT);
@@ -452,8 +458,7 @@ describe("Hotpot", function () {
     );
     const { nft_collection } = await loadFixture(deployCollectionFixture);
 
-    const trade = tradeToFillThePot(marketplace, nft_collection, 1);
-
+    const trade = tradeToFillThePot(marketplace, nft_collection);
     /*
       Check the event and request data
      */
@@ -463,13 +468,8 @@ describe("Hotpot", function () {
     const request_id = await hotpot.lastRequestId();
     let request_created;
     expect(request_id).to.not.equal(0, "Last request id is not set");
-    if (NO_CHAINLINK) {
-      [, request_created, ] = await hotpot.randomRequests(request_id);
-    }
-    else {
-      expect(await hotpot.requestIds(0)).to.equal(request_id, "Request ids array is not updated");
-      [, request_created, ] = await hotpot.chainlinkRequests(request_id);
-    }
+    expect(await hotpot.requestIds(0)).to.equal(request_id, "Request ids array is not updated");
+    [, request_created, ] = await hotpot.chainlinkRequests(request_id);
     expect(request_created).to.equal(true, "Request status is not set to true");
 
   });
@@ -491,26 +491,14 @@ describe("Hotpot", function () {
     let fulfilled_after;
 
     expect(request_id).to.not.equal(0, "Last request id is not set");
-    if (NO_CHAINLINK) {
-      [fulfilled_, exists_, ] = await hotpot.randomRequests(request_id);
-    }
-    else {
-      expect(await hotpot.requestIds(0)).to.equal(request_id, "Request ids array is not updated");
-      [fulfilled_, exists_, ] = await hotpot.chainlinkRequests(request_id);
-    }
+    expect(await hotpot.requestIds(0)).to.equal(request_id, "Request ids array is not updated");
+    [fulfilled_, exists_, ] = await hotpot.chainlinkRequests(request_id);
     expect(fulfilled_).to.equal(false, "The request should not be fulfilled before waiting");
     expect(exists_).to.equal(true, "Request should exist");
 
-    //  Manually fulfill the request
-    if (NO_CHAINLINK) {
-      const salt = generateRandomSalt();
-      await hotpot.connect(owner).fulfillRandomWords(request_id, salt);
-      [fulfilled_after,,] = await hotpot.randomRequests(request_id);
-    }
-    else {
-      await VRFCoordinator.fulfillRandomWords(request_id, VRFV2Wrapper.target);
-      [fulfilled_after,,] = await hotpot.chainlinkRequests(request_id);
-    }
+    // Manually fulfill the request
+    await VRFCoordinator.fulfillRandomWords(request_id, VRFV2Wrapper.target);
+    [fulfilled_after,,] = await hotpot.chainlinkRequests(request_id);
     // Ensure the request is fulfilled    
     expect(fulfilled_after).to.equal(true, "The request should be already fulfilled");
 
@@ -546,13 +534,16 @@ describe("Hotpot", function () {
     const big_winning = ethers.parseEther("50.0");
     amounts.fill(mini_winning);
     amounts[0] = big_winning;
+
+    // Set raffle prizes on-chain
+    await hotpot.connect(owner).updatePrizeAmounts(amounts);
     
     /* 
       Execute raffle and check winners Prizes 
     */
-    expect(hotpot.connect(otherAccount).executeRaffle(winners, amounts))
+    expect(hotpot.connect(otherAccount).executeRaffle(winners))
       .to.be.revertedWith("Caller must be the operator");
-    await hotpot.connect(owner).executeRaffle(winners, amounts);
+    await hotpot.connect(owner).executeRaffle(winners);
     const [user1_claimable_amount, user1_deadline] = await hotpot.claimablePrizes(user_1_address);
     const [user2_claimable_amount, user2_deadline] = await hotpot.claimablePrizes(user_2_address);
     expect(user1_claimable_amount).to.equal(
@@ -585,8 +576,9 @@ describe("Hotpot", function () {
     const big_winning = ethers.parseEther("50.0");
     amounts.fill(mini_winning);
     amounts[0] = big_winning;
-    
-    await hotpot.connect(owner).executeRaffle(winners, amounts);
+    // Setting prize
+    await hotpot.connect(owner).updatePrizeAmounts(amounts);
+    await hotpot.executeRaffle(winners);
 
     /* 
       Claiming the winnings
@@ -630,15 +622,13 @@ describe("Hotpot", function () {
     /*
       Check LINK balance
      */
-    if (!NO_CHAINLINK) {
-      const LinkToken = await ethers.getContractAt("ERC20", LINK_MAINNET);
-      const hotpot_link_balance = await LinkToken.balanceOf(hotpot.target);
-      const link_spent = LINK_FUNDING - hotpot_link_balance;
+    const LinkToken = await ethers.getContractAt("ERC20", LINK_MAINNET);
+    const hotpot_link_balance = await LinkToken.balanceOf(hotpot.target);
+    const link_spent = LINK_FUNDING - hotpot_link_balance;
 
-      console.log("LINK spent on VRF fullfillment: ", 
-        ethers.formatEther(link_spent.toString())
-      );
-    }
+    console.log("LINK spent on VRF fullfillment: ", 
+      ethers.formatEther(link_spent.toString())
+    );
 
     // Set a new raffle ticket cost
     const new_ticket_cost = ethers.parseEther("0.1");
@@ -656,10 +646,37 @@ describe("Hotpot", function () {
     const price = trade_amount / BigInt(HUNDRED_PERCENT + TRADE_FEE);
     const buyer = await user1.getAddress();
     const seller = await user2.getAddress();
-    const item_id = 2;
+    const end_time = 3692620407;
 
-    await mintAndListNewItem(user2, marketplace, nft_collection, price);
-    const trade = marketplace.connect(user1).purchaseItem(item_id, {
+    /* 
+      Sign order, pending amounts and derive parameters
+     */
+    const [signature, order_data] = await mintAndListNewItem(
+      user2, 
+      marketplace, 
+      nft_collection, 
+      price, 
+      end_time
+    );
+    const order_hash = getOrderHash(order_data, marketplace.target);
+    const [pa_signature, pending_amount_data] = await signPendingAmounts(
+      marketplace,
+      owner, // operator
+      0,
+      0,
+      order_hash
+    );
+    const order_parameters = getOrderParameters(
+      order_data, 
+      pending_amount_data,
+      signature,
+      pa_signature
+    );
+
+    /* 
+      Trade
+     */
+    const trade = marketplace.connect(user1).fulfillOrder(order_parameters, {
       value: trade_amount
     });
     
@@ -688,34 +705,21 @@ describe("Hotpot", function () {
     /*
       Fill up the current pot and check winners
      */
-    await tradeToFillThePot(marketplace, nft_collection, item_id + 1);
+    await tradeToFillThePot(marketplace, nft_collection);
     const request_id = await hotpot.lastRequestId();
     let fulfilled_;
     let exists_;
     let fulfilled_after;
     expect(request_id).to.not.equal(0, "Last request id is not set");
 
-    if (NO_CHAINLINK) {
-      [fulfilled_, exists_, ] = await hotpot.randomRequests(request_id);
-    }
-    else {
-      expect(await hotpot.requestIds(1)).to.equal(request_id, "Request ids array is not updated");
-      [fulfilled_, exists_, ] = await hotpot.chainlinkRequests(request_id);
-    }
+    expect(await hotpot.requestIds(1)).to.equal(request_id, "Request ids array is not updated");
+    [fulfilled_, exists_, ] = await hotpot.chainlinkRequests(request_id);
     expect(fulfilled_).to.equal(false, "The request should not be fulfilled before waiting");
     expect(exists_).to.equal(true, "Request should exist");
 
     //  Manually fulfill the request
-    if (NO_CHAINLINK) {
-      const salt = generateRandomSalt();
-      await hotpot.connect(owner).fulfillRandomWords(request_id, salt);  
-      [fulfilled_after,,] = await hotpot.randomRequests(request_id);
-    }
-    else {
-      await VRFCoordinator.fulfillRandomWords(request_id, VRFV2Wrapper.target);
-      [fulfilled_after,,] = await hotpot.chainlinkRequests(request_id);
-    }
-
+    await VRFCoordinator.fulfillRandomWords(request_id, VRFV2Wrapper.target);
+    [fulfilled_after,,] = await hotpot.chainlinkRequests(request_id);
     // Ensure the request is fulfilled
     expect(fulfilled_after).to.equal(true, "The request should be already fulfilled");
 

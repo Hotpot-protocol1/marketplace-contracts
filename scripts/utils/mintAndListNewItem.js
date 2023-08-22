@@ -1,7 +1,7 @@
 const { ethers } = require('ethers');
 const { getEip712Domain } = require('./getEip712Domain');
 const { listingTypes } = require('./EIP712_types');
-const { ROYALTY_PERCENT, ROYALTY_RECIPIENT } = require('./parameters');
+const { ROYALTY_PERCENT, ROYALTY_RECIPIENT_ID } = require('./parameters');
 
 async function mintAndListNewItem(
   lister, 
@@ -13,6 +13,9 @@ async function mintAndListNewItem(
   await nft_collection.mint(lister);
   const token_id = await nft_collection.lastTokenId();
   await nft_collection.connect(lister).approve(marketplace.target, token_id);
+  const salt = BigInt(Math.floor(Math.random() * 10000));
+  const signers = await hre.ethers.getSigners();
+  const royalty_recipient = signers[ROYALTY_RECIPIENT_ID];
 
   const order_data = {
     offerer: await lister.getAddress(),
@@ -24,17 +27,17 @@ async function mintAndListNewItem(
 	  }, 
     royalty: {
       royaltyPercent: ROYALTY_PERCENT, 
-      royaltyRecipient: ROYALTY_RECIPIENT,
+      royaltyRecipient: await royalty_recipient.getAddress(),
     },
-    salt: 1000n,
+    salt: salt,
   };
   const signature = lister.signTypedData(
     getEip712Domain(marketplace.target),
     listingTypes,
-
+    order_data
   );
 
-  return [ lister, marketplace, nft_collection ]
+  return [ signature, order_data ];
 }
 
 module.exports = {

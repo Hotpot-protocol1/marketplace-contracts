@@ -23,7 +23,7 @@ contract Marketplace is
     address public operator;
 
     // Status
-    mapping(bytes32 => OrderStatus) private orderStatus; // order hash => OrderStatus
+    mapping(bytes32 => OrderStatus) public orderStatus; // order hash => OrderStatus
 
     /* 
         EIP712
