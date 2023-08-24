@@ -17,7 +17,8 @@ const {
   LINK_MAINNET,
   INITIAL_CLAIM_WINDOW,
   LINK_FUNDING,
-  ROYALTY_PERCENT
+  ROYALTY_PERCENT,
+  ROYALTY_RECIPIENT_ID
 } = require("../scripts/utils/parameters.js");
 const { tradeToFillThePot } = require("../scripts/utils/tradeToFillThePot.js");
 const { deployMarketplace } = require('../scripts/deploy/Marketplace');
@@ -739,14 +740,146 @@ describe("Hotpot", function () {
     );
   });
 
+  it('Cannot fulfill after order cancelled', async function() {
+    let { 
+      factory, hotpot_impl, owner, 
+      otherAccount, marketplace, hotpot
+    } = await loadFixture(
+      deployEverythingFixture
+    );
+    let { nft_collection } = await loadFixture(deployCollectionFixture);
+    const [, user1, user2] = await ethers.getSigners();
+    const end_time = 3692620407; // just some remote point in the future
+    const price = ethers.parseEther("4.0");
+    const trade_amount = getTradeAmountFromPrice(price);
+    
+    const [signature, order_data] = await mintAndListNewItem(
+      user1, marketplace, nft_collection, price, end_time
+    );
+    const order_hash = getOrderHash(order_data, marketplace.target);
+    const [pa_signature, pending_amount_data] = await signPendingAmounts(
+      marketplace,
+      owner, // operator
+      0,
+      0,
+      order_hash
+    );
+    const order_parameters = getOrderParameters(
+      order_data, 
+      pending_amount_data,
+      signature,
+      pa_signature
+    );
+
+    /* 
+      Offerer cannot be buyer
+     */
+    const trade = marketplace.connect(user1).fulfillOrder(order_parameters, {
+      value: trade_amount
+    });
+    expect(trade).to.be.revertedWith("Signer cannot fulfill their own order");
+
+    await marketplace.connect(user1).cancelOrder(order_data);
+    const trade2 = marketplace.connect(user2).fulfillOrder(order_parameters, {
+      value: trade_amount
+    });
+    expect(trade2).to.be.revertedWith("Order is cancelled and cannot be fulfilled");
+  });
+
+  it('Cannot fulfill after order expired', async function() {
+    let { 
+      factory, hotpot_impl, owner, 
+      otherAccount, marketplace, hotpot
+    } = await loadFixture(
+      deployEverythingFixture
+    );
+    let { nft_collection } = await loadFixture(deployCollectionFixture);
+    const [, user1, user2] = await ethers.getSigners();
+    const price = ethers.parseEther("4.0");
+    const trade_amount = getTradeAmountFromPrice(price);
+    /* 
+      Calculate end time
+     */
+    const blockNumBefore = await ethers.provider.getBlockNumber();
+    const blockBefore = await ethers.provider.getBlock(blockNumBefore);
+    const timestampBefore = blockBefore.timestamp;
+    const end_time = timestampBefore + 300; // 300 seconds into the future
+    
+    const [signature, order_data] = await mintAndListNewItem(
+      user1, marketplace, nft_collection, price, end_time
+    );
+    const order_hash = getOrderHash(order_data, marketplace.target);
+    const [pa_signature, pending_amount_data] = await signPendingAmounts(
+      marketplace,
+      owner, // operator
+      0,
+      0,
+      order_hash
+    );
+    const order_parameters = getOrderParameters(
+      order_data, 
+      pending_amount_data,
+      signature,
+      pa_signature
+    );
+
+    /* 
+      Mine until order expired
+     */
+    const blocks = Math.floor(300 / 13) + 10;
+    await mine(blocks);
+
+    const trade = marketplace.connect(user2).fulfillOrder(order_parameters, {
+      value: trade_amount
+    });
+    expect(trade).to.be.revertedWith("Offer has expired");
+  });
+
+  it('Royalty is successfully payed out', async function() {
+    let { 
+      factory, hotpot_impl, owner, 
+      otherAccount, marketplace, hotpot
+    } = await loadFixture(
+      deployEverythingFixture
+    );
+    let { nft_collection } = await loadFixture(deployCollectionFixture);
+    const [, user1, user2] = await ethers.getSigners();
+    const signers = await ethers.getSigners();
+    const royalty_recipient = await signers[ROYALTY_RECIPIENT_ID].getAddress();
+    const price = ethers.parseEther("4.0");
+    const trade_amount = getTradeAmountFromPrice(price);
+    const royalty_amount = price * BigInt(ROYALTY_PERCENT) / BigInt
+    const end_time = 3692620407;    
+    
+    const [signature, order_data] = await mintAndListNewItem(
+      user1, marketplace, nft_collection, price, end_time
+    );
+    const order_hash = getOrderHash(order_data, marketplace.target);
+    const [pa_signature, pending_amount_data] = await signPendingAmounts(
+      marketplace,
+      owner, // operator
+      0,
+      0,
+      order_hash
+    );
+    const order_parameters = getOrderParameters(
+      order_data, 
+      pending_amount_data,
+      signature,
+      pa_signature
+    );
+
+    const trade = marketplace.connect(user2).fulfillOrder(order_parameters, {
+      value: trade_amount
+    });
+    expect(trade).to.changeEtherBalance(
+      [royalty_recipient, await user1.getAddress()],
+      [big_winning, big_winning]
+    );
+  });
+
   // TODO: pause and check that actions are unavailable. only owner can pause
   // TODO: calculate coverage
   // TODO: add a test case for upgrading the implementation
 });
 
-// TODO listing after deadline cannot be fulfilled
-// TODO test when offerer fulfills his own offer
-// TODO test cancel order. Order cannot be fulfilled after cancel
-// TODO fulfill order and check its status
-// TODO check balances after fulfill order
-// TODO 
