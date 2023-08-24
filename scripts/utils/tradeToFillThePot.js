@@ -8,7 +8,7 @@ const {
   INITIAL_POT_LIMIT,
   ROYALTY_PERCENT
 } = require("./parameters.js");
-const { mintAndListNewItem } = require('./mintAndListNewItem.js');
+const { mintAndSignNewItem } = require('./mintAndSignNewItem.js');
 const { getOrderHash } = require('./getOrderHash.js');
 const { signPendingAmounts } = require('./signPendingAmounts.js');
 const { getOrderParameters } = require('./getOrderParameters.js');
@@ -29,7 +29,7 @@ async function tradeToFillThePot(marketplace, nft_collection) {
     Sign the order
    */
   const end_time = 3692620407n;
-  const [signature, order_data] = await mintAndListNewItem(
+  const [signature, order_data] = await mintAndSignNewItem(
     user2, 
     marketplace, 
     nft_collection, 

@@ -22,11 +22,13 @@ const {
 } = require("../scripts/utils/parameters.js");
 const { tradeToFillThePot } = require("../scripts/utils/tradeToFillThePot.js");
 const { deployMarketplace } = require('../scripts/deploy/Marketplace');
-const { mintAndListNewItem } = require('../scripts/utils/mintAndListNewItem');
+const { mintAndSignNewItem } = require('../scripts/utils/mintAndSignNewItem');
 const { getTradeAmountFromPrice } = require('../scripts/utils/getTradeAmountFromPrice');
 const { getOrderHash } = require('../scripts/utils/getOrderHash.js');
 const { signPendingAmounts } = require('../scripts/utils/signPendingAmounts');
 const { getOrderParameters } = require('../scripts/utils/getOrderParameters');
+const { simpleTrade } = require('../scripts/utils/simpleTrade');
+const { generateSalt } = require('../scripts/utils/generateSalt');
 require("dotenv").config();
 
 
@@ -154,36 +156,22 @@ describe("Hotpot", function () {
     const buyer = await user1.getAddress();
     const seller = await user2.getAddress();
 
-    /*
-      Mint token, approve and list
-     */
-    const price = ethers.parseEther("1.0");
-    const end_time = 3692620407; // just some remote point in the future
-    const [signature, order_data] = await mintAndListNewItem(
-      user2, marketplace, nft_collection, price, end_time
-    );
-    const orderHash = getOrderHash(order_data, marketplace.target);
-    const [pa_signature, pending_amount_data] = await signPendingAmounts(
-      marketplace,
-      owner, // operator
-      0,
-      0,
-      orderHash
-    );
-    const orderParameters = getOrderParameters(
-      order_data, 
-      pending_amount_data,
-      signature,
-      pa_signature
-    );
-
     /* 
       Trade
      */
+    const end_time = 3692620410; // just some remote point in the future
+    const price = ethers.parseEther("1.0");
     const trade_amount = getTradeAmountFromPrice(price);
-    const trade = marketplace.connect(user1).fulfillOrder(orderParameters, {
-      value: trade_amount
-    });
+    const [trade, orderHash] = await simpleTrade(
+      marketplace, 
+      nft_collection,
+      price,
+      0,
+      0,
+      user2,
+      user1,
+      end_time
+    );
     /* 
       Check the generated tickets and new pending amounts
      */
@@ -193,6 +181,7 @@ describe("Hotpot", function () {
     const buyer_id_end = 7; //buyer_id_start + expected_buyer_tickets - 1;
     const seller_id_start = 8;// buyer_id_end + 1;
     const seller_id_end = 13; // seller_id_start + expected_seller_tickets - 1;
+    const token_id = 1;
 
     expect(trade).to.emit(hotpot, "GenerateRaffleTickets").withArgs(
       seller,
@@ -207,8 +196,8 @@ describe("Hotpot", function () {
     expect(trade).to.emit(marketplace, "OrderFulfilled").withArgs(
       seller,
       buyer,
-      order_data.offerItem.offerToken,
-      order_data.offerItem.offerTokenId,
+      nft_collection.target,
+      token_id,
       trade_amount,
       orderHash
     );
@@ -281,40 +270,23 @@ describe("Hotpot", function () {
     expect(await hotpot.fee()).to.equal(INITIAL_POT_FEE, "Pot fee is incorrect");
     expect(await hotpot.lastRaffleTicketId()).to.equal(1, "Initial last ticket id is incorrect");
 
-    /*
-      List items
+    /* 
+      First Trade
      */
-    const end_time = 3692620407; // just some remote point in the future
     const price1 = ethers.parseEther("480.15");
     const price2 = ethers.parseEther("670.0");
     const trade_amount1 = getTradeAmountFromPrice(price1);
     const trade_amount2 = getTradeAmountFromPrice(price2);
     
-    const [signature1, order_data_1] = await mintAndListNewItem(
-      user1, marketplace, nft_collection, price1, end_time
-    );
     const buyer_pending_amount = ethers.parseEther("0.02");
-    const order_1_hash = getOrderHash(order_data_1, marketplace.target);
-    const [pa_signature_1, pending_amount_data_1] = await signPendingAmounts(
-      marketplace,
-      owner, // operator
-      0,
-      buyer_pending_amount,
-      order_1_hash
-    );
-    const order_1_parameters = getOrderParameters(
-      order_data_1, 
-      pending_amount_data_1,
-      signature1,
-      pa_signature_1
-    );
     
-    /* 
-      Trade
-     */
-    const trade = marketplace.connect(user2).fulfillOrder(order_1_parameters, {
-      value: trade_amount1
-    });
+    const [trade] = await simpleTrade(
+      marketplace,
+      nft_collection,
+      price1,
+      buyer_pending_amount,
+      0
+    );
 
     let expected_buyer_tickets = trade_amount1 / BigInt(INITIAL_TICKET_COST);
     let expected_seller_tickets = expected_buyer_tickets;
@@ -358,28 +330,15 @@ describe("Hotpot", function () {
       ___________________________________ 
      */
 
-    const [signature2, order_data_2] = await mintAndListNewItem(
-      user1, marketplace, nft_collection, price2, end_time
-    );
     const offerer_pending_amount = ethers.parseEther("0.01");
-    const order_2_hash = getOrderHash(order_data_1, marketplace.target);
-    const [pa_signature_2, pending_amount_data_2] = await signPendingAmounts(
-      marketplace,
-      owner, // operator
-      offerer_pending_amount,
-      buyer_pending_amount,
-      order_2_hash
-    );
-    const order_2_parameters = getOrderParameters(
-      order_data_2, 
-      pending_amount_data_2,
-      signature2,
-      pa_signature_2
-    );
     const token_id_2 = 2;
-    const trade2 = marketplace.connect(user2).fulfillOrder(order_2_parameters, {
-      value: trade_amount2
-    });
+    const [trade2, order_2_hash] = await simpleTrade(
+      marketplace,
+      nft_collection,
+      price2,
+      buyer_pending_amount,
+      offerer_pending_amount
+    );
 
     expected_buyer_tickets = Number(trade_amount2 / BigInt(INITIAL_TICKET_COST));
     expected_seller_tickets = expected_buyer_tickets;
@@ -647,39 +606,19 @@ describe("Hotpot", function () {
     const price = trade_amount / BigInt(HUNDRED_PERCENT + TRADE_FEE);
     const buyer = await user1.getAddress();
     const seller = await user2.getAddress();
-    const end_time = 3692620407;
-
-    /* 
-      Sign order, pending amounts and derive parameters
-     */
-    const [signature, order_data] = await mintAndListNewItem(
-      user2, 
-      marketplace, 
-      nft_collection, 
-      price, 
-      end_time
-    );
-    const order_hash = getOrderHash(order_data, marketplace.target);
-    const [pa_signature, pending_amount_data] = await signPendingAmounts(
-      marketplace,
-      owner, // operator
-      0,
-      0,
-      order_hash
-    );
-    const order_parameters = getOrderParameters(
-      order_data, 
-      pending_amount_data,
-      signature,
-      pa_signature
-    );
 
     /* 
       Trade
      */
-    const trade = marketplace.connect(user1).fulfillOrder(order_parameters, {
-      value: trade_amount
-    });
+    const [trade] = await simpleTrade(
+      marketplace,
+      nft_collection,
+      price,
+      0,
+      0,
+      user2,
+      user1
+    );
     
     /* 
       Check the generated tickets and new pending amounts
@@ -749,41 +688,75 @@ describe("Hotpot", function () {
     );
     let { nft_collection } = await loadFixture(deployCollectionFixture);
     const [, user1, user2] = await ethers.getSigners();
-    const end_time = 3692620407; // just some remote point in the future
     const price = ethers.parseEther("4.0");
     const trade_amount = getTradeAmountFromPrice(price);
-    
-    const [signature, order_data] = await mintAndListNewItem(
-      user1, marketplace, nft_collection, price, end_time
-    );
-    const order_hash = getOrderHash(order_data, marketplace.target);
-    const [pa_signature, pending_amount_data] = await signPendingAmounts(
-      marketplace,
-      owner, // operator
-      0,
-      0,
-      order_hash
-    );
-    const order_parameters = getOrderParameters(
-      order_data, 
-      pending_amount_data,
-      signature,
-      pa_signature
-    );
 
     /* 
       Offerer cannot be buyer
      */
-    const trade = marketplace.connect(user1).fulfillOrder(order_parameters, {
-      value: trade_amount
-    });
+    const [trade, order_hash, order_data, order_parameters] = await simpleTrade(
+      marketplace,
+      nft_collection,
+      price,
+      0,
+      0,
+      user1,
+      user1
+    );
     expect(trade).to.be.revertedWith("Signer cannot fulfill their own order");
 
-    await marketplace.connect(user1).cancelOrder(order_data);
+    /* 
+      Cancel order
+     */
+    const cancelling = marketplace.connect(user1).cancelOrder(order_data);
+    const offerer = await user1.getAddress();
+    expect(cancelling).to.emit(marketplace, "OrderCancelled").withArgs(
+      offerer,
+      nft_collection.target,
+      order_data.offerItem.offerTokenId,
+      order_hash
+    );
+    await cancelling;
+
     const trade2 = marketplace.connect(user2).fulfillOrder(order_parameters, {
       value: trade_amount
     });
     expect(trade2).to.be.revertedWith("Order is cancelled and cannot be fulfilled");
+  });
+
+  it('Cannot fulfill order twice', async function() {
+    let { 
+      marketplace
+    } = await loadFixture(
+      deployEverythingFixture
+    );
+    let { nft_collection } = await loadFixture(deployCollectionFixture);
+    const [, offerer, buyer, user3] = await ethers.getSigners();
+    const price = ethers.parseEther("0.02");
+    const buyer_pending_amount = ethers.parseEther("0.05");
+    const trade_amount = getTradeAmountFromPrice(price);
+
+    /* 
+      Fulfill
+    */
+    const [trade, , order_data, order_parameters] = await simpleTrade(
+      marketplace,
+      nft_collection,
+      price,
+      buyer_pending_amount,
+      0,
+      offerer,
+      buyer
+    );
+    await trade;
+
+    /* 
+      Fulfilling the same order twice
+     */
+    const trade2 = marketplace.connect(user3).fulfillOrder(order_parameters, {
+      value: trade_amount
+    });
+    expect(trade2).to.be.revertedWith("Order is already fulfilled");
   });
 
   it('Cannot fulfill after order expired', async function() {
@@ -805,7 +778,7 @@ describe("Hotpot", function () {
     const timestampBefore = blockBefore.timestamp;
     const end_time = timestampBefore + 300; // 300 seconds into the future
     
-    const [signature, order_data] = await mintAndListNewItem(
+    const [signature, order_data] = await mintAndSignNewItem(
       user1, marketplace, nft_collection, price, end_time
     );
     const order_hash = getOrderHash(order_data, marketplace.target);
@@ -850,36 +823,130 @@ describe("Hotpot", function () {
     const trade_amount = getTradeAmountFromPrice(price);
     const royalty_amount = price * BigInt(ROYALTY_PERCENT) / BigInt(HUNDRED_PERCENT);
     const raffle_fee = trade_amount - royalty_amount - price;
-    const end_time = 3692620407;
     const lister = await user1.getAddress();
     const buyer = await user2.getAddress();
-    
-    const [signature, order_data] = await mintAndListNewItem(
-      user1, marketplace, nft_collection, price, end_time
+
+    const [trade] = await simpleTrade(
+      marketplace,
+      nft_collection,
+      price,
+      0,
+      0
+    );
+    expect(trade).to.changeEtherBalance(
+      [royalty_recipient, buyer, lister, hotpot.target],
+      [royalty_amount, -trade_amount, price, raffle_fee]
+    );
+
+    await trade;
+  });
+
+  it('Buyer cannot modify order data', async function() {
+    let { 
+      marketplace
+    } = await loadFixture(
+      deployEverythingFixture
+    );
+    let { nft_collection } = await loadFixture(deployCollectionFixture);
+    const [operator, buyer, offerer, user3] = await ethers.getSigners();
+    const price = ethers.parseEther("4.0");
+    const end_time = 3692620410;
+    const trade_amount = getTradeAmountFromPrice(price);
+
+    const [signature, order_data] = await mintAndSignNewItem(
+      offerer,
+      marketplace,
+      nft_collection,
+      price,
+      end_time
     );
     const order_hash = getOrderHash(order_data, marketplace.target);
-    const [pa_signature, pending_amount_data] = await signPendingAmounts(
+    const [pa_signature, pending_amounts] = await signPendingAmounts(
       marketplace,
-      owner, // operator
+      operator,
       0,
       0,
       order_hash
     );
     const order_parameters = getOrderParameters(
-      order_data, 
-      pending_amount_data,
+      order_data,
+      pending_amounts,
       signature,
       pa_signature
     );
-
-    const trade = marketplace.connect(user2).fulfillOrder(order_parameters, {
+    
+    /* 
+      Replaced token id
+     */
+    const params1 = {
+      ...order_parameters,
+      offerItem: {
+        ...order_parameters.offerItem,
+        offerTokenId: 100
+      }
+    };
+    const trade = marketplace.connect(buyer).fulfillOrder(params1, {
       value: trade_amount
     });
-    expect(trade).to.changeEtherBalance(
-      [royalty_recipient, buyer, lister, hotpot.target],
-      [royalty_amount, -trade_amount, price, raffle_fee]
+    expect(trade).to.be.reverted;
+    
+    /* 
+      Replaced price
+     */
+    const params2 = {
+      ...order_parameters,
+      offerItem: {
+        ...order_parameters.offerItem,
+        offerAmount: ethers.parseEther("0.0002")
+      }
+    };
+    const trade2 = marketplace.connect(buyer).fulfillOrder(params2, {
+      value: trade_amount
+    });
+    expect(trade2).to.be.reverted;
+
+    /* 
+      Replace royalties
+     */
+    const new_recipient = await user3.getAddress();
+    const params3 = {
+      ...order_parameters,
+      royalty: {
+        ...order_parameters.royalty,
+        royaltyRecipient: new_recipient
+      }
+    };
+    const trade3 = marketplace.connect(buyer).fulfillOrder(params3, {
+      value: trade_amount
+    });
+    expect(trade3).to.be.reverted;
+
+    /* 
+      Non-operator signs pending amounts
+     */
+    const new_buyer_pa = ethers.parseEther("0.09");
+    const [pa_signature2, ] = await signPendingAmounts(
+      marketplace,
+      buyer,
+      0,
+      new_buyer_pa,
+      order_hash
     );
+    const params4 = {
+      ...order_parameters,
+      pendingAmountsData: {
+        ...order_parameters.pendingAmountsData,
+        buyerPendingAmount: new_buyer_pa
+      },
+      pendingAmountsSignature: pa_signature2
+    };
+    const trade4 = marketplace.connect(buyer).fulfillOrder(params4, {
+      value: trade_amount
+    });
+    expect(trade4).to.be.revertedWith("Operator must be the pending amounts data signer");
   });
+
+  // TODO: malicious order data
 
   // TODO: pause and check that actions are unavailable. only owner can pause
   // TODO: calculate coverage

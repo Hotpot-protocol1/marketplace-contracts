@@ -2,18 +2,20 @@ const { ethers } = require('ethers');
 const { getEip712Domain } = require('./getEip712Domain');
 const { listingTypes } = require('./EIP712_types');
 const { ROYALTY_PERCENT, ROYALTY_RECIPIENT_ID } = require('./parameters');
+const { generateSalt } = require('./generateSalt');
 
-async function mintAndListNewItem(
+async function mintAndSignNewItem(
   lister, 
   marketplace, 
   nft_collection, 
   price,
-  end_time
+  end_time,
+  salt
 ) {
   await nft_collection.mint(lister);
   const token_id = await nft_collection.lastTokenId();
   await nft_collection.connect(lister).approve(marketplace.target, token_id);
-  const salt = BigInt(Math.floor(Math.random() * 10000));
+  salt = salt || generateSalt();
   const signers = await hre.ethers.getSigners();
   const royalty_recipient = signers[ROYALTY_RECIPIENT_ID];
 
@@ -41,5 +43,5 @@ async function mintAndListNewItem(
 }
 
 module.exports = {
-  mintAndListNewItem
+  mintAndSignNewItem
 }
