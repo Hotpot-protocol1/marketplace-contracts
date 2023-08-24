@@ -5,7 +5,7 @@ require('dotenv').config();
 
 
 const {
-  INFURA_SEPOLIA_API, INFURA_MAINNET_API, STAGE, MNEMONIC
+  INFURA_MAINNET_API, STAGE, MNEMONIC
 } = process.env;
 
 let forking_url;
@@ -37,15 +37,6 @@ module.exports = {
         accounts: {
           accountsBalance: "20000000000000000000000" // 20000 ETH
         }
-    },
-    sepolia: {
-      url: INFURA_SEPOLIA_API,
-      accounts: {
-        mnemonic: MNEMONIC,
-        initialIndex: 0,
-        count: 1
-      }
-      
     }
   },
 

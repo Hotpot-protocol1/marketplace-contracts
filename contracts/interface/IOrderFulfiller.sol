@@ -26,7 +26,7 @@ interface IOrderFulfiller {
 
     struct RoyaltyData {
         uint256 royaltyPercent;
-        address royaltyRecipient;
+        address payable royaltyRecipient;
     }
 
     struct PendingAmountData {

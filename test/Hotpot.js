@@ -848,8 +848,11 @@ describe("Hotpot", function () {
     const royalty_recipient = await signers[ROYALTY_RECIPIENT_ID].getAddress();
     const price = ethers.parseEther("4.0");
     const trade_amount = getTradeAmountFromPrice(price);
-    const royalty_amount = price * BigInt(ROYALTY_PERCENT) / BigInt
-    const end_time = 3692620407;    
+    const royalty_amount = price * BigInt(ROYALTY_PERCENT) / BigInt(HUNDRED_PERCENT);
+    const raffle_fee = trade_amount - royalty_amount - price;
+    const end_time = 3692620407;
+    const lister = await user1.getAddress();
+    const buyer = await user2.getAddress();
     
     const [signature, order_data] = await mintAndListNewItem(
       user1, marketplace, nft_collection, price, end_time
@@ -873,8 +876,8 @@ describe("Hotpot", function () {
       value: trade_amount
     });
     expect(trade).to.changeEtherBalance(
-      [royalty_recipient, await user1.getAddress()],
-      [big_winning, big_winning]
+      [royalty_recipient, buyer, lister, hotpot.target],
+      [royalty_amount, -trade_amount, price, raffle_fee]
     );
   });
 

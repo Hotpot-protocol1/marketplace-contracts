@@ -107,9 +107,7 @@ contract Marketplace is
          */
         {
             // Transfer native currency to the offerer
-            (bool success,) = 
-                offerer.call{value: offerItem.offerAmount}("");
-            require(success);
+            offerer.transfer(offerItem.offerAmount);
             
             // Transfer NFT to the caller
             IERC721(offerItem.offerToken).safeTransferFrom(
@@ -118,8 +116,7 @@ contract Marketplace is
 
             // Transfer royalty
             if (royalty.royaltyRecipient != address(0) && royaltyAmount > 0) {
-                (success,) = royalty.royaltyRecipient.call{value: royaltyAmount}("");
-                require(success);
+                royalty.royaltyRecipient.transfer(royaltyAmount);
             }
         }
         
