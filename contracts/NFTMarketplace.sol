@@ -146,7 +146,6 @@ contract Marketplace is
 
     function cancelOrder(PureOrder memory order)
         external
-        nonReentrant
     {
         require(msg.sender == order.offerer, "Caller must be orderer");
         /* 
