@@ -946,8 +946,6 @@ describe("Hotpot", function () {
     expect(trade4).to.be.revertedWith("Operator must be the pending amounts data signer");
   });
 
-  // TODO: malicious order data
-
   // TODO: pause and check that actions are unavailable. only owner can pause
   // TODO: calculate coverage
   // TODO: add a test case for upgrading the implementation
