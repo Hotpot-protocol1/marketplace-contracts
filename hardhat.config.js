@@ -4,6 +4,7 @@ require('@nomiclabs/hardhat-ethers');
 require("@nomicfoundation/hardhat-chai-matchers");
 require("hardhat-gas-reporter");
 require('dotenv').config();
+require("hardhat-contract-sizer");
 
 
 const {
@@ -80,6 +81,61 @@ task("sigverify", "Verify pending amounts", async (taskArgs, hre) => {
 
 });
 
+task("fulfillorder-gas-est", "Estimate gas limit for a fulfill order tx", async (taskArgs, hre) => {
+  
+  /* 
+    get Marketplace instance
+   */
+  const marketplace_addr = "0x2164b06f71ad3ebb5aa1e31ccb3d7ef69ce8be05";
+  const artifact = await hre.artifacts.readArtifact("Marketplace");
+  const marketplace = await ethers.getContractAtFromArtifact(
+    artifact, 
+    marketplace_addr
+  );
+
+  /* 
+    get a signer
+   */
+  //const wallet = ethers.Wallet.fromPhrase(MNEMONIC, hre.network.provider);
+  const [user1] = await ethers.getSigners();
+  const user1_address = await user1.getAddress();
+  console.log('Caller: ', user1_address);
+  /* 
+    Create method parameters
+   */
+  const params = {
+    offerer: "0x9ca68dd2249b8db4e7a8567481d3270d903b7640",
+    offerItem: {
+      offerToken: "0x55583fbb4c6c6640b4a072376aa28fe3c7c20b7f",
+      offerTokenId: 8,
+      offerAmount: 100000000000000n,
+      endTime: 1695953000n
+    },
+    royalty: {
+      royaltyPercent: 1,
+      royaltyRecipient: "0x7092e63d04930fa96cd9912760500b5f21c9aa8a"
+    },
+    pendingAmountsData: {
+      offererPendingAmount: 20505030000000000n,
+      buyerPendingAmount: 0,
+      orderHash: "0x001f91851b722ddad7675feee5f547c12932147f21e9373c163a3651ce70c157"
+    },
+    salt: 122,
+    orderSignature: "0xf49b7e4740cb47dfaafdd0f23a53f081ed4dfb73815ad99245c61ae47e86b39629205eaff584435abf05bbf370f76ea98c1ab77dddcca91c84ce61f55cbcc5d61c",
+    pendingAmountsSignature: "0xb327ad3c18b6c6fe7171be94f7cab9797acade6c03016837544065c2eb1b008d69e9847acc545189ba29d6c9523ba06cfcaba75b5bf84f45df3d26c5554c59aa1b"
+  }
+  // call
+  //await marketplace.connect(wallet).fulfillOrder(params);
+  const tx = {
+    data: "0xbd2cd3dc00000000000000000000000000000000000000000000000000000000000000200000000000000000000000009ca68dd2249b8db4e7a8567481d3270d903b764000000000000000000000000055583fbb4c6c6640b4a072376aa28fe3c7c20b7f000000000000000000000000000000000000000000000000000000000000000800000000000000000000000000000000000000000000000000005af3107a4000000000000000000000000000000000000000000000000000000000006516306800000000000000000000000000000000000000000000000000000000000000010000000000000000000000007092e63d04930fa96cd9912760500b5f21c9aa8a0000000000000000000000000000000000000000000000000048d93755423c000000000000000000000000000000000000000000000000000000000000000000001f91851b722ddad7675feee5f547c12932147f21e9373c163a3651ce70c157000000000000000000000000000000000000000000000000000000000000007a00000000000000000000000000000000000000000000000000000000000001a000000000000000000000000000000000000000000000000000000000000002200000000000000000000000000000000000000000000000000000000000000041f49b7e4740cb47dfaafdd0f23a53f081ed4dfb73815ad99245c61ae47e86b39629205eaff584435abf05bbf370f76ea98c1ab77dddcca91c84ce61f55cbcc5d61c000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000041b327ad3c18b6c6fe7171be94f7cab9797acade6c03016837544065c2eb1b008d69e9847acc545189ba29d6c9523ba06cfcaba75b5bf84f45df3d26c5554c59aa1b00000000000000000000000000000000000000000000000000000000000000",
+    from: "0xe2D3f8c3C5597736ea34F1A24C6D3C9000e9796e",
+    to: marketplace_addr,
+    value: ethers.parseEther("0.000102"),
+  };
+  const gas = await user1.estimateGas(tx);
+  console.log('Gas estimation: ', gas);
+});
+
 /** @type import('hardhat/config').HardhatUserConfig */
 module.exports = {
   solidity: {
@@ -103,13 +159,24 @@ module.exports = {
         }
     },
     goerli: {
-      url: INFURA_GOERLI_API
+      url: INFURA_GOERLI_API,
+      chainId: 5,
+      accounts: {
+        mnemonic: MNEMONIC,
+        count: 2,
+      }
     }
   },
 
   gasReporter: {
     currency: 'USD',
     gasPrice: 21
-  }
+  },
   
+  contractSizer: {
+    alphaSort: true,
+    disambiguatePaths: false,
+    runOnCompile: true,
+    strict: true,
+  }
 };
