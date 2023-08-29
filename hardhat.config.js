@@ -2,7 +2,7 @@ require('@nomiclabs/hardhat-ethers');
 require("@nomicfoundation/hardhat-chai-matchers");
 require("hardhat-gas-reporter");
 require('dotenv').config();
-
+require('hardhat-contract-sizer');
 
 const {
   INFURA_MAINNET_API, STAGE, MNEMONIC, INFURA_GOERLI_API
@@ -80,6 +80,13 @@ module.exports = {
   gasReporter: {
     currency: 'USD',
     gasPrice: 21
+  },
+
+  contractSizer: {
+    alphaSort: true,
+    disambiguatePaths: false,
+    runOnCompile: true,
+    strict: true,
   }
   
 };

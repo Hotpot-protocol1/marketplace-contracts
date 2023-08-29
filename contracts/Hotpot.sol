@@ -103,6 +103,20 @@ contract Hotpot is IHotpot, OwnableUpgradeable, PausableUpgradeable, VRFV2Wrappe
 		}
     }
 
+    function batchExecuteTrade() external onlyMarketplace whenNotPaused {
+
+    }
+
+    function _executeTrade(
+        uint256 _amountInWei, 
+        address _buyer, 
+        address _seller, 
+        uint256 _buyerPendingAmount, 
+        uint256 _sellerPendingAmount
+    ) internal {
+
+    }
+
     function executeRaffle(
         address[] calldata _winners
     ) external onlyOperator {
