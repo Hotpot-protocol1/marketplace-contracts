@@ -105,8 +105,8 @@ contract Hotpot is IHotpot, OwnableUpgradeable, PausableUpgradeable, VRFV2Wrappe
 
     function batchExecuteTrade(
         address buyer,
-        TradeParams[] memory trades,
-        address[] memory sellers // assuming trades are sorted by sellers
+        BatchTradeParams[] memory trades,
+        address[] memory sellers 
     ) external payable onlyMarketplace whenNotPaused {
         require(msg.value > 0, "No trade fee transferred (msg.value)");
         uint256 potValueDelta = msg.value * (MULTIPLIER - fee) / MULTIPLIER;
@@ -126,7 +126,7 @@ contract Hotpot is IHotpot, OwnableUpgradeable, PausableUpgradeable, VRFV2Wrappe
 
         // set initial pending amounts
         for (uint256 i = 0; i < trades_n; i++) {
-            TradeParams memory trade = trades[i];
+            BatchTradeParams memory trade = trades[i];
             sellersPendingAmounts[trade._sellerIndex] = trade._sellerPendingAmount;
         }
         
@@ -136,7 +136,7 @@ contract Hotpot is IHotpot, OwnableUpgradeable, PausableUpgradeable, VRFV2Wrappe
          */
         {
             for(uint256 i = 0; i < trades_n; i++) {
-                TradeParams memory trade = trades[i];
+                BatchTradeParams memory trade = trades[i];
                 uint16 sellerIndex = trade._sellerIndex;
 
                 (

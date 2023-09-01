@@ -946,7 +946,50 @@ describe("Hotpot", function () {
     expect(trade4).to.be.revertedWith("Operator must be the pending amounts data signer");
   });
 
-  // TODO: malicious order data
+  it('Batch fulfill order', async function() {
+
+  });
+
+  it('Batch fulfill order (single seller)', async function() {
+    let { 
+      marketplace
+    } = await loadFixture(
+      deployEverythingFixture
+    );
+    let { nft_collection } = await loadFixture(deployCollectionFixture);
+
+    /* 
+    
+      ORDER 1
+
+     */
+
+    const [operator, buyer, offerer1, offerer2, offerer3] = await ethers.getSigners();
+    const price1 = ethers.parseEther("4.0");
+    const buyer_pending_amount = ethers.parseEther("0.01");
+    const end_time = 3692620410;
+    const trade_amount_1 = getTradeAmountFromPrice(price1);
+  
+    
+
+    /* 
+
+        CREATING ORDER 2
+    
+    */
+    
+  });
+
+  // TODO happy batch fulfill order with unique sellers
+  // TODO batch orders from one seller
+  // TODO check state after each case
+  // TODO empty arrays of orders or/and sellers
+  // TODO mismatch of array lengths
+  // TODO insufficient funds reverts
+  // TODO duplicate orders in the array
+  // TODO one of the orders is cancelled
+  // TODO check final pending amounts after GenerateRaffleTickets
+  // TODO 
 
   // TODO: pause and check that actions are unavailable. only owner can pause
   // TODO: calculate coverage

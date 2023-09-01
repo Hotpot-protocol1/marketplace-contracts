@@ -24,7 +24,7 @@ interface IHotpot {
         uint256 randomWord;
     }
 
-    struct TradeParams {
+    struct BatchTradeParams {
         uint256 _amountInWei; 
         uint16 _sellerIndex;
         uint256 _buyerPendingAmount; 
@@ -69,7 +69,7 @@ interface IHotpot {
 
     function batchExecuteTrade(
         address buyer,
-        TradeParams[] memory trades,
+        BatchTradeParams[] memory trades,
         address[] memory sellers
     ) external payable;
 

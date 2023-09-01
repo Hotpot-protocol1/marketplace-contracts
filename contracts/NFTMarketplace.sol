@@ -69,57 +69,20 @@ contract Marketplace is
         payable
         nonReentrant 
     {
+        address buyer = msg.sender;
         OfferItem memory offerItem = parameters.offerItem;
         RoyaltyData memory royalty = parameters.royalty;
         PendingAmountData memory pendingAmounts = parameters.pendingAmountsData;
-        address payable offerer = parameters.offerer;
-        address buyer = msg.sender;
-        uint256 hotpotFeeAmount = offerItem.offerAmount * raffleTradeFee / HUNDRED_PERCENT;
-        uint256 royaltyAmount = 
-            offerItem.offerAmount * royalty.royaltyPercent / HUNDRED_PERCENT;
-
+        uint256 hotpotFeeAmount = _getHotpotFeeAmount(offerItem.offerAmount);
+        uint256 royaltyAmount = _getRoyaltyAmount(
+            offerItem.offerAmount, royalty.royaltyPercent
+        );
         uint256 tradeAmount = offerItem.offerAmount + hotpotFeeAmount + royaltyAmount;
         require(msg.value >= tradeAmount, "Insufficient ether provided");
 
-        //check if offer has expired
-        require(block.timestamp <= parameters.offerItem.endTime, 
-            "Offer has expired");
+        // validating and fulfilling the order
+        _fulfillOrder(parameters, buyer, royaltyAmount, tradeAmount);
 
-        /* 
-            Calculating EIP712 hash of the order data and validating it
-            agains the specified signature
-         */
-        bytes32 _orderHash = _validateOrderData(parameters);
-
-        // Doing the same with pending amount data
-        _validatePendingAmountData(
-            parameters.pendingAmountsData, parameters.pendingAmountsSignature
-        );
-
-        // Validate and update order status
-        OrderStatus storage _orderStatus = orderStatus[_orderHash];
-        _validateOrderStatus(_orderStatus);
-        _orderStatus.isFulfilled = true;
-
-        /* 
-            Transfer ether to all recepients
-            and the NFT to the caller
-         */
-        {
-            // Transfer native currency to the offerer
-            offerer.transfer(offerItem.offerAmount);
-            
-            // Transfer NFT to the caller
-            IERC721(offerItem.offerToken).safeTransferFrom(
-                offerer, buyer, offerItem.offerTokenId
-            );
-
-            // Transfer royalty
-            if (royalty.royaltyRecipient != address(0) && royaltyAmount > 0) {
-                royalty.royaltyRecipient.transfer(royaltyAmount);
-            }
-        }
-        
         /* 
             Execute Hotpot trade to generate tickets
          */
@@ -128,20 +91,68 @@ contract Marketplace is
             IHotpot(_raffleContract).executeTrade{ value: hotpotFeeAmount }(
                 tradeAmount,
                 buyer,
-                offerer,
+                parameters.offerer,
                 pendingAmounts.buyerPendingAmount,
                 pendingAmounts.offererPendingAmount
             );
         }
+    }
+
+    function batchFulfillOrder(
+        BatchOrderParameters[] memory parameters,
+        address[] memory offerers
+    )
+        external payable nonReentrant
+    {
+        address buyer = msg.sender;
+        uint256 orders_n = parameters.length;
+        _validateBatchFulfillOrderParameters(parameters, offerers);
         
-        emit OrderFulfilled(
-            offerer,
-            buyer,
-            offerItem.offerToken,
-            offerItem.offerTokenId,
-            tradeAmount,
-            _orderHash
-        );
+        /* 
+            Fulfilling orders
+         */
+        uint256 tradeAmountTotal = 0;
+        uint256 raffleFeeTotal = 0;
+        IHotpot.BatchTradeParams[] memory batchTradeParams = 
+            new IHotpot.BatchTradeParams[](orders_n);
+
+        for(uint256 i = 0; i < orders_n; i++) {
+            OrderParameters memory order = _convertToSingleOrder(
+                parameters[i]
+            );
+            OfferItem memory offerItem = order.offerItem;
+            RoyaltyData memory royalty = order.royalty;
+            uint256 hotpotFeeAmount = _getHotpotFeeAmount(offerItem.offerAmount);
+            uint256 royaltyAmount = _getRoyaltyAmount(
+                offerItem.offerAmount, royalty.royaltyPercent
+            );
+            uint256 tradeAmount = offerItem.offerAmount + hotpotFeeAmount + royaltyAmount;
+            tradeAmountTotal += tradeAmount;
+            raffleFeeTotal += hotpotFeeAmount;
+
+            // Preparing parameters for executeTrade
+            batchTradeParams[i] = _convertToBatchTradeParams(
+                parameters[i],
+                tradeAmount
+            );
+
+            // validating and fulfilling the order
+            _fulfillOrder(order, buyer, royaltyAmount, tradeAmount);
+        }
+
+        require(msg.value >= tradeAmountTotal, "Insufficient ether provided");
+
+        /* 
+            Execute batch trade
+         */
+        address _raffleContract = raffleContract;
+        if (_raffleContract != address(0)) {
+            IHotpot(_raffleContract).batchExecuteTrade{ value: raffleFeeTotal }(
+                buyer,
+                batchTradeParams,
+                offerers
+            );
+        }
     }
 
     function cancelOrder(PureOrder memory order)
@@ -185,6 +196,94 @@ contract Marketplace is
         operator = _newOperator;
         IHotpot(raffleContract).setOperator(_newOperator);
         emit OperatorChanged(_newOperator);
+    }
+
+    /* 
+
+        ***
+        INTERNAL
+        ***
+    
+     */
+    function _fulfillOrder(
+        OrderParameters memory parameters,
+        address buyer,
+        uint256 royaltyAmount,
+        uint256 tradeAmount
+    ) internal {
+        OfferItem memory offerItem = parameters.offerItem;
+        RoyaltyData memory royalty = parameters.royalty;
+        address payable offerer = parameters.offerer;
+        //check if offer has expired
+        require(block.timestamp <= parameters.offerItem.endTime, 
+            "Offer has expired");
+
+        /* 
+            Calculating EIP712 hash of the order data and validating it
+            agains the specified signature
+         */
+        bytes32 _orderHash = _validateOrderData(parameters);
+
+        // Doing the same with pending amount data
+        _validatePendingAmountData(
+            parameters.pendingAmountsData, parameters.pendingAmountsSignature
+        );
+
+        // Validate and update order status
+        OrderStatus storage _orderStatus = orderStatus[_orderHash];
+        _validateOrderStatus(_orderStatus);
+        _orderStatus.isFulfilled = true;
+
+        /* 
+            Transfer ether to all recepients
+            and the NFT to the caller
+         */
+        {
+            // Transfer native currency to the offerer
+            offerer.transfer(offerItem.offerAmount);
+            
+            // Transfer NFT to the caller
+            IERC721(offerItem.offerToken).safeTransferFrom(
+                offerer, buyer, offerItem.offerTokenId
+            );
+
+            // Transfer royalty
+            if (royalty.royaltyRecipient != address(0) && royaltyAmount > 0) {
+                royalty.royaltyRecipient.transfer(royaltyAmount);
+            }
+        }
+
+        emit OrderFulfilled(
+            offerer,
+            buyer,
+            offerItem.offerToken,
+            offerItem.offerTokenId,
+            tradeAmount,
+            _orderHash
+        );
+    }
+
+    /* 
+        Validates that parameters are sorted by sellers
+        and that they match an array of offerers
+     */
+    function _validateBatchFulfillOrderParameters(
+        BatchOrderParameters[] memory parameters,
+        address[] memory offerers
+    ) internal pure {
+        uint256 orders_n = parameters.length;
+        uint256 offerers_n = offerers.length;
+        require(orders_n >= offerers_n, "Invalid number of sellers");
+        /* 
+            Go through orders and check
+            that they match offerers from params
+         */
+        for(uint256 i = 0; i < orders_n; i++) {
+            BatchOrderParameters memory order = parameters[i];
+            require(order.offererIndex < offerers_n, "Invalid offerer index");
+            require(order.offerer == offerers[order.offererIndex], 
+                "Offerers array mismath");
+        }
     }
 
     function _validateOrderData(OrderParameters memory parameters) 
@@ -289,4 +388,43 @@ contract Marketplace is
         require(!_orderStatus.isFulfilled, "Order is already fulfilled");
     }
 
+    function _getHotpotFeeAmount(
+        uint256 offerAmount
+    ) internal view returns(uint256) {
+        return offerAmount * raffleTradeFee / HUNDRED_PERCENT;
+    }
+
+    function _getRoyaltyAmount(
+        uint256 offerAmount,
+        uint256 royaltyPercent
+    ) internal pure returns(uint256) {
+        return offerAmount * royaltyPercent / HUNDRED_PERCENT;
+    }
+
+    function _convertToSingleOrder(
+        BatchOrderParameters memory order
+    ) internal pure returns (OrderParameters memory singleOrder) {
+        // removing offererIndex
+        singleOrder = OrderParameters({
+            offerer: order.offerer,
+            offerItem: order.offerItem,
+            royalty: order.royalty,
+            pendingAmountsData: order.pendingAmountsData,
+            salt: order.salt,
+            orderSignature: order.orderSignature,
+            pendingAmountsSignature: order.pendingAmountsSignature
+        });
+    }
+
+    function _convertToBatchTradeParams(
+        BatchOrderParameters memory order,
+        uint256 tradeAmount
+    ) internal pure returns (IHotpot.BatchTradeParams memory params) {
+        params = IHotpot.BatchTradeParams({
+            _amountInWei: tradeAmount, 
+            _sellerIndex: order.offererIndex,
+            _buyerPendingAmount: order.pendingAmountsData.buyerPendingAmount,
+            _sellerPendingAmount: order.pendingAmountsData.offererPendingAmount
+        });
+    }
 }
