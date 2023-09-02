@@ -33,7 +33,7 @@ async function mintAndSignNewItem(
     },
     salt: salt,
   };
-  const signature = lister.signTypedData(
+  const signature = await lister.signTypedData(
     getEip712Domain(marketplace.target),
     listingTypes,
     order_data

@@ -10,7 +10,7 @@ async function signPendingAmounts(
     buyerPendingAmount: buyer_pending_amount,
     orderHash: order_hash
   };
-  const signature = operator.signTypedData(
+  const signature = await operator.signTypedData(
     getEip712Domain(marketplace.target),
     pendingAmountType,
     pending_amount_data
