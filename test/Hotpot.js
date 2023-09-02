@@ -1339,17 +1339,122 @@ describe("Hotpot", function () {
   });
 
   it('Misconfigured or malicious batches should revert', async function() {
+    let { 
+      marketplace, hotpot
+    } = await loadFixture(
+      deployEverythingFixture
+    );
+    let { nft_collection } = await loadFixture(deployCollectionFixture);
+
+    /* 
     
+      ORDER 1
+
+     */
+
+    const [operator, buyer, offerer1, offerer2] = await ethers.getSigners();
+    const price1 = ethers.parseEther("4.0");
+    const trade_amount_1 = getTradeAmountFromPrice(price1);
+    const [params_1, order_1_hash] = await generateOrderParameters(
+      marketplace,
+      nft_collection,
+      price1,
+      0,
+      0,
+      offerer1,
+      buyer
+    );
+
+    /* 
+
+        CREATING ORDER 2
+
+    */
+    const price2 = ethers.parseEther("3.0");
+    const trade_amount_2 = getTradeAmountFromPrice(price2);
+    const [params_2, order_2_hash] = await generateOrderParameters(
+      marketplace,
+      nft_collection,
+      price2,
+      0,
+      0,
+      offerer2,
+      buyer
+    );
+    
+    /* 
+
+      FULFILLING WITH BAD PARAMETERS
+    
+    */
+    const bad_offerers = [];
+    const batch_fulfill_order_params = [params_1, params_2].map(
+      (order_params, i) => {
+        return {
+          ...order_params,
+          offererIndex: i
+        }
+      }
+    );
+    const total_trade_amount = trade_amount_1 + trade_amount_2;
+    const batch1 = marketplace.connect(buyer).batchFulfillOrder(
+      batch_fulfill_order_params,
+      bad_offerers, {
+        value: total_trade_amount
+      }
+    );
+    expect(batch1).to.be.reverted;
+
+    // Wrong offerers
+    const offerer_1_address = await offerer1.getAddress();
+    const bad_offerers_2 = [offerer_1_address, offerer_1_address];
+    const batch2 = marketplace.connect(buyer).batchFulfillOrder(
+      batch_fulfill_order_params,
+      bad_offerers_2, {
+        value: total_trade_amount
+      }
+    );
+    expect(batch2).to.be.revertedWith("Offerers array mismath");
+
+    // Too many offerers
+    const bad_offerers_3 = new Array(4).fill(offerer_1_address);
+    const batch3 = marketplace.connect(buyer).batchFulfillOrder(
+      batch_fulfill_order_params,
+      bad_offerers_3, {
+        value: total_trade_amount
+      }
+    );
+    expect(batch3).to.be.revertedWith("Invalid number of sellers");
+
+    // Duplicate orders
+    const batch_4_fulfill_order_params = [params_1, params_2, params_1].map(
+      (order_params, i) => {
+        return {
+          ...order_params,
+          offererIndex: i
+        }
+      }
+    );
+    const offerer_2_address = await offerer2.getAddress();
+    const offerers = [offerer_1_address, offerer_2_address, offerer_1_address];
+    const batch4 = marketplace.connect(buyer).batchFulfillOrder(
+      batch_4_fulfill_order_params,
+      offerers, {
+        value: total_trade_amount + trade_amount_1
+      }
+    );
+    expect(batch4).to.be.revertedWith("Order is already fulfilled");
+
+    const normal_offerers = [offerer_1_address, offerer_2_address];
+    const batch5 = marketplace.connect(buyer).batchFulfillOrder(
+      batch_fulfill_order_params,
+      normal_offerers, {
+        value: total_trade_amount - 1n // insufficient ether
+      }
+    );
+    expect(batch5).to.be.revertedWith("Insufficient ether provided");
   });
 
-  
-
-  // TODO empty arrays of orders or/and sellers
-  // TODO mismatch of array lengths
-  // TODO insufficient funds reverts
-  // TODO duplicate orders in the array
-  // TODO one of the orders is cancelled
-  // TODO check final pending amounts after GenerateRaffleTickets
   // TODO batch fulfill order triggers the pot. Ticket ranges are correct
 
   // TODO: pause and check that actions are unavailable. only owner can pause
