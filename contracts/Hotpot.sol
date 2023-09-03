@@ -4,7 +4,6 @@ import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/Own
 import {PausableUpgradeable} from "@openzeppelin/contracts-upgradeable/security/PausableUpgradeable.sol";
 import {IHotpot} from "./interface/IHotpot.sol";
 import {VRFV2WrapperConsumerBase} from "@chainlink/contracts/src/v0.8/VRFV2WrapperConsumerBase.sol";
-import "@openzeppelin/contracts/utils/structs/EnumerableMap.sol";
 
 contract Hotpot is IHotpot, OwnableUpgradeable, PausableUpgradeable, VRFV2WrapperConsumerBase {
     uint256 public potLimit;
