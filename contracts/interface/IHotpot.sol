@@ -54,8 +54,14 @@ interface IHotpot {
     event Claim(address indexed user, uint256 amount);
     event MarketplaceUpdated(address _newMarketplace);
     event OperatorUpdated(address _newOperator);
+    event AirdropAddressUpdated(address _newAidrop);
     event PrizeAmountsUpdated(uint128[] _newPrizeAmounts);
     event NumberOfWinnersUpdated(uint16 _nOfWinners);
+    event GenerateAirdropTickets(
+        address indexed user, 
+        uint32 ticketIdStart,
+        uint32 ticketIdEnd
+    );
 
     function initialize(address _owner, InitializeParams calldata params) external;
 
@@ -76,6 +82,7 @@ interface IHotpot {
     function executeRaffle(address[] calldata _winners) external;
 
     function claim() external;
+    function claimAirdropTickets(address user, uint32 tickets) external;
     function setTradeFee(uint16 _newTradeFee) external;
     function setOperator(address _newOperator) external;
     function updatePrizeAmounts(uint128[] memory _newPrizeAmounts) external;

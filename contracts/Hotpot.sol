@@ -26,6 +26,7 @@ contract Hotpot is IHotpot, OwnableUpgradeable, PausableUpgradeable, VRFV2Wrappe
     uint16 public currentPotId;
     address public marketplace;
     address public operator;
+    address public airdrop; // airdrop contract
     uint256 constant MULTIPLIER = 10000;
 
     modifier onlyMarketplace() {
@@ -35,6 +36,11 @@ contract Hotpot is IHotpot, OwnableUpgradeable, PausableUpgradeable, VRFV2Wrappe
 
     modifier onlyOperator() {
         require(msg.sender == operator, "Caller must be the operator");
+        _;
+    }
+
+    modifier onlyAirdrop() {
+        require(msg.sender == airdrop, "Anauthorized call - not an airdrop contract");
         _;
     }
 
@@ -209,6 +215,23 @@ contract Hotpot is IHotpot, OwnableUpgradeable, PausableUpgradeable, VRFV2Wrappe
         return winningTicketIds[_potId];
     }
 
+    function claimAirdropTickets(
+        address user,
+        uint32 tickets
+    ) external onlyAirdrop {
+        if (tickets == 0) {
+            return;
+        }
+        uint32 ticketIdStart = lastRaffleTicketId + 1;
+        uint32 ticketIdEnd = ticketIdStart + tickets - 1;
+        lastRaffleTicketId = ticketIdEnd;
+        emit GenerateAirdropTickets(
+            user,
+            ticketIdStart,
+            ticketIdEnd
+        );
+    }
+
     /* 
 
         ***
@@ -225,6 +248,12 @@ contract Hotpot is IHotpot, OwnableUpgradeable, PausableUpgradeable, VRFV2Wrappe
 
     function setOperator(address _newOperator) external onlyMarketplace {
         operator = _newOperator;
+    }
+
+    function setAirdropContract(address _newAirdropContract) external onlyOwner {
+        require(airdrop != _newAirdropContract, "Address didn't change");
+        airdrop = _newAirdropContract;
+        emit AirdropAddressUpdated(_newAirdropContract);
     }
 
     function setRaffleTicketCost(uint256 _newRaffleTicketCost) external onlyOwner {
