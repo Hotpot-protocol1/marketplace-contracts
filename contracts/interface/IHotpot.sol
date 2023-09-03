@@ -24,6 +24,13 @@ interface IHotpot {
         uint256 randomWord;
     }
 
+    struct BatchTradeParams {
+        uint256 _amountInWei; 
+        uint16 _sellerIndex;
+        uint256 _buyerPendingAmount; 
+        uint256 _sellerPendingAmount;
+    }
+
 	event GenerateRaffleTickets(
 		address indexed _buyer,
 		address indexed _seller, 
@@ -58,6 +65,12 @@ interface IHotpot {
         address _seller, 
         uint256 _buyerPendingAmount, 
         uint256 _sellerPendingAmount
+    ) external payable;
+
+    function batchExecuteTrade(
+        address buyer,
+        BatchTradeParams[] memory trades,
+        address[] memory sellers
     ) external payable;
 
     function executeRaffle(address[] calldata _winners) external;

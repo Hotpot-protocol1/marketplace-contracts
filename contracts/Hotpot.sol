@@ -4,6 +4,7 @@ import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/Own
 import {PausableUpgradeable} from "@openzeppelin/contracts-upgradeable/security/PausableUpgradeable.sol";
 import {IHotpot} from "./interface/IHotpot.sol";
 import {VRFV2WrapperConsumerBase} from "@chainlink/contracts/src/v0.8/VRFV2WrapperConsumerBase.sol";
+import "@openzeppelin/contracts/utils/structs/EnumerableMap.sol";
 
 contract Hotpot is IHotpot, OwnableUpgradeable, PausableUpgradeable, VRFV2WrapperConsumerBase {
     uint256 public potLimit;
@@ -70,7 +71,6 @@ contract Hotpot is IHotpot, OwnableUpgradeable, PausableUpgradeable, VRFV2Wrappe
         uint256 _buyerPendingAmount, 
         uint256 _sellerPendingAmount
     ) external payable onlyMarketplace whenNotPaused {
-        require(_buyer != _seller, "Buyer and seller must be different");
 		require(msg.value > 0, "No trade fee transferred (msg.value)");
         uint256 potValueDelta = msg.value * (MULTIPLIER - fee) / MULTIPLIER;
         uint256 _currentPotSize = currentPotSize;
@@ -78,25 +78,92 @@ contract Hotpot is IHotpot, OwnableUpgradeable, PausableUpgradeable, VRFV2Wrappe
 		uint256 _raffleTicketCost = raffleTicketCost;
         uint32 _lastRaffleTicketIdBefore = lastRaffleTicketId;
 
-		uint32 buyerTickets = uint32((_buyerPendingAmount + _amountInWei) / _raffleTicketCost);
-		uint32 sellerTickets = uint32((_sellerPendingAmount + _amountInWei) / _raffleTicketCost);
-		uint256 _newBuyerPendingAmount = (_buyerPendingAmount + _amountInWei) % _raffleTicketCost;
-		uint256	_newSellerPendingAmount = (_sellerPendingAmount + _amountInWei) % _raffleTicketCost;
-        
-        _generateTickets(_buyer, _seller, buyerTickets, sellerTickets,
-            _newBuyerPendingAmount, _newSellerPendingAmount);
+        _executeTrade(
+            _amountInWei,
+            _buyer,
+            _seller,
+            _buyerPendingAmount,
+            _sellerPendingAmount,
+            _raffleTicketCost
+        );
 
         /*
             Request Chainlink random winners if the Pot is filled 
          */
 		if(_currentPotSize + potValueDelta >= _potLimit) {
-            uint32 _potTicketIdEnd = _calculateTicketIdEnd(_lastRaffleTicketIdBefore);
-            potTicketIdEnd = _potTicketIdEnd;
-            potTicketIdStart = nextPotTicketIdStart; 
-            nextPotTicketIdStart = _potTicketIdEnd + 1; // starting ticket of the next Pot
-			// The remainder goes to the next pot
-			currentPotSize = (_currentPotSize + potValueDelta) % _potLimit; 
-            _requestRandomWinners();
+            _finishRaffle(
+                potValueDelta, 
+                _lastRaffleTicketIdBefore,
+                _potLimit,
+                _currentPotSize
+            );
+        }
+		else {
+			currentPotSize += potValueDelta;
+		}
+    }
+
+    function batchExecuteTrade(
+        address buyer,
+        BatchTradeParams[] memory trades,
+        address[] memory sellers 
+    ) external payable onlyMarketplace whenNotPaused {
+        require(msg.value > 0, "No trade fee transferred (msg.value)");
+        uint256 potValueDelta = msg.value * (MULTIPLIER - fee) / MULTIPLIER;
+        uint256 _currentPotSize = currentPotSize;
+		uint256 _potLimit = potLimit;
+		uint256 _raffleTicketCost = raffleTicketCost;
+        uint32 _lastRaffleTicketIdBefore = lastRaffleTicketId;
+        uint256 trades_n = trades.length;
+
+        /* 
+            Pending amounts might change during trades,
+            so we update them locally to pass to the next
+            trade
+         */
+        uint256[] memory sellersPendingAmounts = new uint256[](sellers.length);
+        uint256 buyerPendingAmount = trades[0]._buyerPendingAmount;
+
+        // set initial pending amounts
+        for (uint256 i = 0; i < trades_n; i++) {
+            BatchTradeParams memory trade = trades[i];
+            sellersPendingAmounts[trade._sellerIndex] = trade._sellerPendingAmount;
+        }
+        
+        /* 
+            Execute trades, 
+            while updating local pending amounts
+         */
+        {
+            for(uint256 i = 0; i < trades_n; i++) {
+                BatchTradeParams memory trade = trades[i];
+                uint16 sellerIndex = trade._sellerIndex;
+
+                (
+                    buyerPendingAmount, 
+                    sellersPendingAmounts[sellerIndex]
+                ) = _executeTrade(
+                        trade._amountInWei,
+                        buyer,
+                        sellers[sellerIndex],
+                        buyerPendingAmount,
+                        sellersPendingAmounts[sellerIndex],
+                        _raffleTicketCost
+                );
+            }
+        }
+        
+
+        /*
+            Request Chainlink random winners if the Pot is filled 
+         */
+		if(_currentPotSize + potValueDelta >= _potLimit) {
+            _finishRaffle(
+                potValueDelta, 
+                _lastRaffleTicketIdBefore,
+                _potLimit,
+                _currentPotSize
+            );
         }
 		else {
 			currentPotSize += potValueDelta;
@@ -142,6 +209,14 @@ contract Hotpot is IHotpot, OwnableUpgradeable, PausableUpgradeable, VRFV2Wrappe
     function getWinningTicketIds(uint16 _potId) external view returns(uint32[] memory) {
         return winningTicketIds[_potId];
     }
+
+    /* 
+
+        ***
+        SETTERS
+        ***
+
+     */
 
     function setMarketplace(address _newMarketplace) external onlyOwner {
         require(marketplace != _newMarketplace, "Address didn't change");
@@ -190,6 +265,34 @@ contract Hotpot is IHotpot, OwnableUpgradeable, PausableUpgradeable, VRFV2Wrappe
             }
         }
         emit PrizeAmountsUpdated(_newPrizeAmounts);
+    }
+
+    /* 
+
+            ***
+            INTERNAL
+            ***
+     */
+
+    function _executeTrade(
+        uint256 _amountInWei, 
+        address _buyer, 
+        address _seller, 
+        uint256 _buyerPendingAmount, 
+        uint256 _sellerPendingAmount,
+        uint256 _raffleTicketCost
+    ) internal returns(
+        uint256 _newBuyerPendingAmount,
+        uint256 _newSellerPendingAmount
+    ) {
+        require(_buyer != _seller, "Buyer and seller must be different");
+        uint32 buyerTickets = uint32((_buyerPendingAmount + _amountInWei) / _raffleTicketCost);
+		uint32 sellerTickets = uint32((_sellerPendingAmount + _amountInWei) / _raffleTicketCost);
+		_newBuyerPendingAmount = (_buyerPendingAmount + _amountInWei) % _raffleTicketCost;
+		_newSellerPendingAmount = (_sellerPendingAmount + _amountInWei) % _raffleTicketCost;
+        
+        _generateTickets(_buyer, _seller, buyerTickets, sellerTickets,
+            _newBuyerPendingAmount, _newSellerPendingAmount);
     }
     
     function _generateTickets(
@@ -246,6 +349,21 @@ contract Hotpot is IHotpot, OwnableUpgradeable, PausableUpgradeable, VRFV2Wrappe
         }
         
         return _lastRaffleTicketIdBefore + ticketsNeeded;
+    }
+
+    function _finishRaffle(
+        uint256 potValueDelta,
+        uint32 _lastRaffleTicketIdBefore,
+        uint256 _potLimit,
+        uint256 _currentPotSize
+    ) internal {
+        uint32 _potTicketIdEnd = _calculateTicketIdEnd(_lastRaffleTicketIdBefore);
+        potTicketIdEnd = _potTicketIdEnd;
+        potTicketIdStart = nextPotTicketIdStart; 
+        nextPotTicketIdStart = _potTicketIdEnd + 1; // starting ticket of the next Pot
+        // The remainder goes to the next pot
+        currentPotSize = (_currentPotSize + potValueDelta) % _potLimit; 
+        _requestRandomWinners();
     }
 
     function _requestRandomWinners() internal {

@@ -29,6 +29,9 @@ const { signPendingAmounts } = require('../scripts/utils/signPendingAmounts');
 const { getOrderParameters } = require('../scripts/utils/getOrderParameters');
 const { simpleTrade } = require('../scripts/utils/simpleTrade');
 const { generateSalt } = require('../scripts/utils/generateSalt');
+const { generateOrderParameters } = require('../scripts/utils/generateOrderParameters');
+const { calculateTicketsForTrade } = require('../scripts/utils/calculateTicketsForTrade');
+const { getPotDeltaFromPrice } = require('../scripts/utils/getPotDeltaFromPrice');
 require("dotenv").config();
 
 
@@ -945,6 +948,514 @@ describe("Hotpot", function () {
     });
     expect(trade4).to.be.revertedWith("Operator must be the pending amounts data signer");
   });
+
+  it('Batch fulfill order', async function() {
+    let { 
+      marketplace, hotpot
+    } = await loadFixture(
+      deployEverythingFixture
+    );
+    let { nft_collection } = await loadFixture(deployCollectionFixture);
+
+    /* 
+    
+      ORDER 1
+
+     */
+
+    const [operator, buyer, offerer1, offerer2, offerer3] = await ethers.getSigners();
+    const price1 = ethers.parseEther("4.0");
+    const buyer_pending_amount = ethers.parseEther("0.01");
+    const trade_amount_1 = getTradeAmountFromPrice(price1);
+    const [params_1, order_1_hash] = await generateOrderParameters(
+      marketplace,
+      nft_collection,
+      price1,
+      buyer_pending_amount,
+      0,
+      offerer1,
+      buyer
+    );
+
+    /* 
+
+        CREATING ORDER 2
+
+    */
+    const price2 = ethers.parseEther("3.0");
+    const trade_amount_2 = getTradeAmountFromPrice(price2);
+    const [params_2, order_2_hash] = await generateOrderParameters(
+      marketplace,
+      nft_collection,
+      price2,
+      buyer_pending_amount,
+      0,
+      offerer2,
+      buyer
+    );
+    
+    /* 
+
+        CREATING ORDER 3
+        
+    */
+    const price3 = ethers.parseEther("0.01");
+    const trade_amount_3 = getTradeAmountFromPrice(price3);
+    const offerer_3_pending_amount = ethers.parseEther("0.03");
+    const [params_3, order_3_hash] = await generateOrderParameters(
+      marketplace,
+      nft_collection,
+      price3,
+      buyer_pending_amount,
+      offerer_3_pending_amount,
+      offerer3,
+      buyer
+    );
+
+    /* 
+
+       Prepare parameters and fulfill
+     */
+
+    const total_trade_amount = trade_amount_1 + trade_amount_2 + trade_amount_3;
+    const offerers = [offerer1, offerer2, offerer3].map(async (signer) => {
+      return await signer.getAddress();
+    });
+    const batch_fulfill_order_params = [params_1, params_2, params_3].map(
+      (order_params, i) => {
+        return {
+          ...order_params,
+          offererIndex: i
+        }
+      }
+    );
+
+    const batch = marketplace.connect(buyer).batchFulfillOrder(
+      batch_fulfill_order_params,
+      offerers, {
+        value: total_trade_amount
+      }
+    );
+
+    /* 
+
+      CHECKING MARKETPLACE EVENTS AFTER FULFILLMENT
+    
+    */
+    const offerer1_address = await offerer1.getAddress();  
+    const offerer2_address = await offerer2.getAddress();  
+    const offerer3_address = await offerer3.getAddress();  
+    const buyer_address = await buyer.getAddress();
+    expect(batch).to.emit(marketplace, "OrderFulfilled").withArgs(
+      offerer1_address,
+      buyer_address,
+      params_1.offerItem.offerToken,
+      params_1.offerItem.offerTokenId,
+      trade_amount_1,
+      order_1_hash
+    );
+    expect(batch).to.emit(marketplace, "OrderFulfilled").withArgs(
+      offerer2_address,
+      buyer_address,
+      params_2.offerItem.offerToken,
+      params_2.offerItem.offerTokenId,
+      trade_amount_2,
+      order_2_hash
+    );
+    expect(batch).to.emit(marketplace, "OrderFulfilled").withArgs(
+      offerer3_address,
+      buyer_address,
+      params_3.offerItem.offerToken,
+      params_3.offerItem.offerTokenId,
+      trade_amount_3,
+      order_3_hash
+    );
+
+    /* 
+    
+      CHECKING HOTPOT EVENTS
+
+     */
+    const new_buyer_pending_amount = 
+      buyer_pending_amount + buyer_pending_amount + trade_amount_3; // since it's not enough for 1 ticket 
+    const new_offerer3_pending_amount = 
+      offerer_3_pending_amount + trade_amount_3;
+    const tickets_1 = calculateTicketsForTrade(
+      trade_amount_1,
+      1,
+      buyer_pending_amount,
+      0n
+    );
+    const tickets_2 = calculateTicketsForTrade(
+      trade_amount_2,
+      tickets_1.seller_ticket_end,
+      0n,
+      0n
+    );
+    const tickets_3 = calculateTicketsForTrade(
+      trade_amount_3,
+      tickets_2.seller_ticket_end,
+      buyer_pending_amount + buyer_pending_amount,
+      offerer_3_pending_amount
+    );
+    expect(batch).to.emit(hotpot, "GenerateRaffleTickets").withArgs(
+      buyer_address, 
+			offerer1_address, 
+			tickets_1.buyer_ticket_start, 
+			tickets_1.buyer_ticket_end,
+      tickets_1.seller_ticket_start,
+      tickets_1.seller_ticket_end,
+			buyer_pending_amount,
+			0
+    );
+    expect(batch).to.emit(hotpot, "GenerateRaffleTickets").withArgs(
+      buyer_address, 
+			offerer2_address, 
+			tickets_2.buyer_ticket_start, 
+			tickets_2.buyer_ticket_end,
+      tickets_2.seller_ticket_start,
+      tickets_2.seller_ticket_end,
+			0,
+			0
+    );
+    expect(batch).to.emit(hotpot, "GenerateRaffleTickets").withArgs(
+      buyer_address, 
+			offerer3_address, 
+			tickets_3.buyer_ticket_start, 
+			tickets_3.buyer_ticket_end,
+      tickets_3.seller_ticket_start,
+      tickets_3.seller_ticket_end,
+			new_buyer_pending_amount,
+			new_offerer3_pending_amount
+    );
+    await batch;
+
+  });
+
+  it('Batch fulfill order (single seller)', async function() {
+    let { 
+      marketplace, hotpot
+    } = await loadFixture(
+      deployEverythingFixture
+    );
+    let { nft_collection } = await loadFixture(deployCollectionFixture);
+
+    /* 
+    
+      ORDER 1
+
+     */
+
+    const [operator, buyer, offerer] = await ethers.getSigners();
+    const price1 = ethers.parseEther("0.8");
+    const buyer_pending_amount = ethers.parseEther("0.000001");
+    const offerer_pending_amount = ethers.parseEther("0.08");
+    const trade_amount_1 = getTradeAmountFromPrice(price1);
+    const [params_1, order_1_hash] = await generateOrderParameters(
+      marketplace,
+      nft_collection,
+      price1,
+      buyer_pending_amount,
+      offerer_pending_amount,
+      offerer,
+      buyer
+    );
+
+    /* 
+
+        CREATING ORDER 2
+
+    */
+    const price2 = ethers.parseEther("3.100005");
+    const trade_amount_2 = getTradeAmountFromPrice(price2);
+    const [params_2, order_2_hash] = await generateOrderParameters(
+      marketplace,
+      nft_collection,
+      price2,
+      buyer_pending_amount,
+      offerer_pending_amount,
+      offerer,
+      buyer
+    );
+    
+    /* 
+
+        CREATING ORDER 3
+        
+    */
+    const price3 = ethers.parseEther("0.01");
+    const trade_amount_3 = getTradeAmountFromPrice(price3);
+    const [params_3, order_3_hash] = await generateOrderParameters(
+      marketplace,
+      nft_collection,
+      price3,
+      buyer_pending_amount,
+      offerer_pending_amount,
+      offerer,
+      buyer
+    );
+
+    /* 
+
+       Prepare parameters and fulfill
+     */
+
+    const total_trade_amount = trade_amount_1 + trade_amount_2 + trade_amount_3;
+    const offerer_address = await offerer.getAddress();
+    const offerers = [offerer_address];
+    const batch_fulfill_order_params = [params_1, params_2, params_3].map(
+      (order_params, i) => {
+        return {
+          ...order_params,
+          offererIndex: 0
+        }
+      }
+    );
+
+    const batch = marketplace.connect(buyer).batchFulfillOrder(
+      batch_fulfill_order_params,
+      offerers, {
+        value: total_trade_amount
+      }
+    );
+
+    /* 
+
+      CHECKING MARKETPLACE EVENTS AFTER FULFILLMENT
+    
+    */
+    const buyer_address = await buyer.getAddress();
+    expect(batch).to.emit(marketplace, "OrderFulfilled").withArgs(
+      offerer_address,
+      buyer_address,
+      params_1.offerItem.offerToken,
+      params_1.offerItem.offerTokenId,
+      trade_amount_1,
+      order_1_hash
+    );
+    expect(batch).to.emit(marketplace, "OrderFulfilled").withArgs(
+      offerer_address,
+      buyer_address,
+      params_2.offerItem.offerToken,
+      params_2.offerItem.offerTokenId,
+      trade_amount_2,
+      order_2_hash
+    );
+    expect(batch).to.emit(marketplace, "OrderFulfilled").withArgs(
+      offerer_address,
+      buyer_address,
+      params_3.offerItem.offerToken,
+      params_3.offerItem.offerTokenId,
+      trade_amount_3,
+      order_3_hash
+    );
+
+    /* 
+    
+      CHECKING HOTPOT EVENTS
+
+      */
+    const tickets_1 = calculateTicketsForTrade(
+      trade_amount_1,
+      1,
+      buyer_pending_amount,
+      offerer_pending_amount
+    );
+
+    const buyer_pa_post_trade1 = (trade_amount_1 + buyer_pending_amount) % INITIAL_TICKET_COST;
+    const offerer_pa_post_trade1 = (trade_amount_1 + offerer_pending_amount) % INITIAL_TICKET_COST;
+    const tickets_2 = calculateTicketsForTrade(
+      trade_amount_2,
+      tickets_1.seller_ticket_end,
+      buyer_pa_post_trade1,
+      offerer_pa_post_trade1
+    );
+
+    const buyer_pa_post_trade2 = 
+      (trade_amount_1 + buyer_pa_post_trade1) % INITIAL_TICKET_COST;
+    const offerer_pa_post_trade2 = 
+      (trade_amount_1 + offerer_pa_post_trade1) % INITIAL_TICKET_COST;
+    const tickets_3 = calculateTicketsForTrade(
+      trade_amount_3,
+      tickets_2.seller_ticket_end,
+      buyer_pa_post_trade2,
+      offerer_pa_post_trade2
+    );
+
+    const final_buyer_pending_amount = 
+      (total_trade_amount + buyer_pending_amount) % INITIAL_TICKET_COST;
+    const final_offerer_pending_amount = 
+      (total_trade_amount + offerer_pending_amount) % INITIAL_TICKET_COST;
+    expect(batch).to.emit(hotpot, "GenerateRaffleTickets").withArgs(
+      buyer_address, 
+      offerer_address, 
+      tickets_1.buyer_ticket_start, 
+      tickets_1.buyer_ticket_end,
+      tickets_1.seller_ticket_start,
+      tickets_1.seller_ticket_end,
+      buyer_pa_post_trade1,
+      offerer_pa_post_trade1
+    );
+    expect(batch).to.emit(hotpot, "GenerateRaffleTickets").withArgs(
+      buyer_address, 
+      offerer_address, 
+      tickets_2.buyer_ticket_start, 
+      tickets_2.buyer_ticket_end,
+      tickets_2.seller_ticket_start,
+      tickets_2.seller_ticket_end,
+      buyer_pa_post_trade2,
+      offerer_pa_post_trade2
+    );
+    expect(batch).to.emit(hotpot, "GenerateRaffleTickets").withArgs(
+      buyer_address, 
+      offerer_address, 
+      tickets_3.buyer_ticket_start, 
+      tickets_3.buyer_ticket_end,
+      tickets_3.seller_ticket_start,
+      tickets_3.seller_ticket_end,
+      final_buyer_pending_amount,
+      final_offerer_pending_amount
+    );
+    
+    /* 
+      
+      CHECK THE STATE CHANGE
+    
+    */
+    const trade_fee_total = total_trade_amount * BigInt(TRADE_FEE) 
+      / BigInt(HUNDRED_PERCENT);
+    const price_total = price1 + price2 + price3;
+    expect(batch).to.changeEtherBalances([
+      hotpot.target, offerer_address, buyer_address
+    ], [
+      trade_fee_total, price_total, -total_trade_amount
+    ]);
+
+    await batch;
+
+    const pot_size = await hotpot.currentPotSize();
+    const expected_pot_size = getPotDeltaFromPrice(price_total);
+    expect(pot_size).to.equal(expected_pot_size, "Incorrect pot size");
+  });
+
+  it('Misconfigured or malicious batches should revert', async function() {
+    let { 
+      marketplace, hotpot
+    } = await loadFixture(
+      deployEverythingFixture
+    );
+    let { nft_collection } = await loadFixture(deployCollectionFixture);
+
+    /* 
+    
+      ORDER 1
+
+     */
+
+    const [operator, buyer, offerer1, offerer2] = await ethers.getSigners();
+    const price1 = ethers.parseEther("4.0");
+    const trade_amount_1 = getTradeAmountFromPrice(price1);
+    const [params_1, order_1_hash] = await generateOrderParameters(
+      marketplace,
+      nft_collection,
+      price1,
+      0,
+      0,
+      offerer1,
+      buyer
+    );
+
+    /* 
+
+        CREATING ORDER 2
+
+    */
+    const price2 = ethers.parseEther("3.0");
+    const trade_amount_2 = getTradeAmountFromPrice(price2);
+    const [params_2, order_2_hash] = await generateOrderParameters(
+      marketplace,
+      nft_collection,
+      price2,
+      0,
+      0,
+      offerer2,
+      buyer
+    );
+    
+    /* 
+
+      FULFILLING WITH BAD PARAMETERS
+    
+    */
+    const bad_offerers = [];
+    const batch_fulfill_order_params = [params_1, params_2].map(
+      (order_params, i) => {
+        return {
+          ...order_params,
+          offererIndex: i
+        }
+      }
+    );
+    const total_trade_amount = trade_amount_1 + trade_amount_2;
+    const batch1 = marketplace.connect(buyer).batchFulfillOrder(
+      batch_fulfill_order_params,
+      bad_offerers, {
+        value: total_trade_amount
+      }
+    );
+    expect(batch1).to.be.reverted;
+
+    // Wrong offerers
+    const offerer_1_address = await offerer1.getAddress();
+    const bad_offerers_2 = [offerer_1_address, offerer_1_address];
+    const batch2 = marketplace.connect(buyer).batchFulfillOrder(
+      batch_fulfill_order_params,
+      bad_offerers_2, {
+        value: total_trade_amount
+      }
+    );
+    expect(batch2).to.be.revertedWith("Offerers array mismath");
+
+    // Too many offerers
+    const bad_offerers_3 = new Array(4).fill(offerer_1_address);
+    const batch3 = marketplace.connect(buyer).batchFulfillOrder(
+      batch_fulfill_order_params,
+      bad_offerers_3, {
+        value: total_trade_amount
+      }
+    );
+    expect(batch3).to.be.revertedWith("Invalid number of sellers");
+
+    // Duplicate orders
+    const batch_4_fulfill_order_params = [params_1, params_2, params_1].map(
+      (order_params, i) => {
+        return {
+          ...order_params,
+          offererIndex: i
+        }
+      }
+    );
+    const offerer_2_address = await offerer2.getAddress();
+    const offerers = [offerer_1_address, offerer_2_address, offerer_1_address];
+    const batch4 = marketplace.connect(buyer).batchFulfillOrder(
+      batch_4_fulfill_order_params,
+      offerers, {
+        value: total_trade_amount + trade_amount_1
+      }
+    );
+    expect(batch4).to.be.revertedWith("Order is already fulfilled");
+
+    const normal_offerers = [offerer_1_address, offerer_2_address];
+    const batch5 = marketplace.connect(buyer).batchFulfillOrder(
+      batch_fulfill_order_params,
+      normal_offerers, {
+        value: total_trade_amount - 1n // insufficient ether
+      }
+    );
+    expect(batch5).to.be.revertedWith("Insufficient ether provided");
+  });
+
+  // TODO batch fulfill order triggers the pot. Ticket ranges are correct
 
   // TODO: pause and check that actions are unavailable. only owner can pause
   // TODO: calculate coverage

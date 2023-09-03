@@ -35,6 +35,17 @@ interface IOrderFulfiller {
         bytes32 orderHash;
     }
 
+    struct BatchOrderParameters {
+        address payable offerer;
+        uint16 offererIndex; // index in the array of offerers
+        OfferItem offerItem;
+        RoyaltyData royalty;
+        PendingAmountData pendingAmountsData;
+        uint256 salt;
+        bytes orderSignature;
+        bytes pendingAmountsSignature;
+    }
+
     struct OrderStatus {
         bool isFulfilled;
         bool isCancelled;
@@ -57,4 +68,8 @@ interface IOrderFulfiller {
 
     function fulfillOrder(OrderParameters memory parameters) external payable;
 
+    function batchFulfillOrder(
+        BatchOrderParameters[] memory parameters,
+        address[] memory offerers
+    ) external payable;
 }
