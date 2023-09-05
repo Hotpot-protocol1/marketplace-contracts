@@ -13,6 +13,7 @@ contract HotpotMerkleAirdrop is Ownable {
     uint256 public startTime;
     uint16 public lastGroupId;
     address public raffleContract;
+    address public operator; // backend operator
 
     struct Duration {
         uint64 start;
@@ -30,6 +31,11 @@ contract HotpotMerkleAirdrop is Ownable {
         uint64 end
     );
 
+    modifier onlyOperator {
+        require(msg.sender == operator, "Anauthorized call");
+        _;
+    }
+
     /**
      * @param _merkleRoot       Merkle root
      * @param _startTime        Exact time when contract is live
@@ -37,11 +43,13 @@ contract HotpotMerkleAirdrop is Ownable {
     constructor(
         bytes32 _merkleRoot,
         uint256 _startTime,
-        address _raffleContract
+        address _raffleContract,
+        address _operator
     ) {
         merkleRoot = _merkleRoot;
         startTime = _startTime;
         raffleContract = _raffleContract;
+        operator = _operator;
     }
 
     /**
@@ -58,7 +66,7 @@ contract HotpotMerkleAirdrop is Ownable {
     function setRoot(
         bytes32 _merkleRoot, 
         uint16 _lastGroupId
-    ) external onlyOwner {
+    ) external onlyOperator {
         merkleRoot = _merkleRoot;
 
         if (_lastGroupId > lastGroupId) {
@@ -73,8 +81,9 @@ contract HotpotMerkleAirdrop is Ownable {
         Duration calldata duration_
     ) external onlyOwner {
         require(duration_.start < duration_.end, "Duration end must be greater than start");
-        require(groupId <= lastGroupId, "Invalid group");
+        require(groupId <= lastGroupId, "Group doesn't exist");
         claimWindow[groupId] = duration_;
+        emit ClaimWindowUpdated(groupId, duration_.start, duration_.end);
     }
 
     /**
@@ -103,8 +112,7 @@ contract HotpotMerkleAirdrop is Ownable {
     function claim(
         bytes32[] calldata _proof,
         address addr,
-        uint256[] memory ticketAmounts, // amount of tickets for each group
-        uint16 flags // group ids
+        uint256[] memory ticketAmounts // amount of tickets for each group
     ) external {
         uint16 _lastGroupId = lastGroupId;
         require(merkleRoot != bytes32(0), "Empty root");
@@ -112,16 +120,18 @@ contract HotpotMerkleAirdrop is Ownable {
         require(ticketAmounts.length - 1 == lastGroupId, 
             "Invalid ticket amounts");
         // TODO any possible collisions here?
-        bytes32 leaf = keccak256(abi.encodePacked(addr, ticketAmounts, flags));
+        bytes32 leaf = keccak256(abi.encodePacked(addr, ticketAmounts));
         require(MerkleProof.verify(_proof, merkleRoot, leaf), "invalid proof");
 
         bool isEligible;
         uint256 claimableTickets;
+        uint256 ticketsForGroup;
         for (uint16 id = 0; id <= _lastGroupId;) {
             BitMaps.BitMap storage hasClaimedGroup = _hasClaimed[id];
+            ticketsForGroup = ticketAmounts[id];
+            isEligible = ticketsForGroup > 0;
 
             assembly {
-                isEligible := and(shr(id, flags), 0x1)
                 id := add(id, 1)
             } // Divided checks to separate `if`s to avoid unnecessary storage read in case of `false` flag
             if (!isEligible || hasClaimedGroup.get(uint256(uint160(addr)))) {
@@ -135,7 +145,7 @@ contract HotpotMerkleAirdrop is Ownable {
 
             unchecked {
                 hasClaimedGroup.set(uint256(uint160(addr)));
-                claimableTickets += ticketAmounts[id - 1];
+                claimableTickets += ticketsForGroup;
             }
         }
 
