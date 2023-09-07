@@ -10,3 +10,5 @@ typechain-types
 cache
 artifacts
 
+generate-airdrop-list.js
+

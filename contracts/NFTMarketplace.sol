@@ -73,11 +73,14 @@ contract Marketplace is
         OfferItem memory offerItem = parameters.offerItem;
         RoyaltyData memory royalty = parameters.royalty;
         PendingAmountData memory pendingAmounts = parameters.pendingAmountsData;
-        uint256 hotpotFeeAmount = _getHotpotFeeAmount(offerItem.offerAmount);
-        uint256 royaltyAmount = _getRoyaltyAmount(
-            offerItem.offerAmount, royalty.royaltyPercent
+        uint256 tradeAmount = _calculateTradeAmount(
+            offerItem.offerAmount, 
+            royalty.royaltyPercent
         );
-        uint256 tradeAmount = offerItem.offerAmount + hotpotFeeAmount + royaltyAmount;
+        uint256 hotpotFeeAmount = _getHotpotFeeAmount(tradeAmount);
+        uint256 royaltyAmount = _getRoyaltyAmount(
+            tradeAmount, royalty.royaltyPercent
+        );
         require(msg.value >= tradeAmount, "Insufficient ether provided");
 
         // validating and fulfilling the order
@@ -122,11 +125,14 @@ contract Marketplace is
             );
             OfferItem memory offerItem = order.offerItem;
             RoyaltyData memory royalty = order.royalty;
-            uint256 hotpotFeeAmount = _getHotpotFeeAmount(offerItem.offerAmount);
-            uint256 royaltyAmount = _getRoyaltyAmount(
-                offerItem.offerAmount, royalty.royaltyPercent
+            uint256 tradeAmount = _calculateTradeAmount(
+                offerItem.offerAmount,
+                royalty.royaltyPercent
             );
-            uint256 tradeAmount = offerItem.offerAmount + hotpotFeeAmount + royaltyAmount;
+            uint256 hotpotFeeAmount = _getHotpotFeeAmount(tradeAmount);
+            uint256 royaltyAmount = _getRoyaltyAmount(
+                tradeAmount, royalty.royaltyPercent
+            );
             tradeAmountTotal += tradeAmount;
             raffleFeeTotal += hotpotFeeAmount;
 
@@ -388,17 +394,25 @@ contract Marketplace is
         require(!_orderStatus.isFulfilled, "Order is already fulfilled");
     }
 
-    function _getHotpotFeeAmount(
-        uint256 offerAmount
+    function _calculateTradeAmount(
+        uint256 offerAmount,
+        uint256 royaltyPercent
     ) internal view returns(uint256) {
-        return offerAmount * raffleTradeFee / HUNDRED_PERCENT;
+        return offerAmount * HUNDRED_PERCENT
+         / (HUNDRED_PERCENT - raffleTradeFee - royaltyPercent);
+    }
+
+    function _getHotpotFeeAmount(
+        uint256 tradeAmount
+    ) internal view returns(uint256) {
+        return tradeAmount * raffleTradeFee / HUNDRED_PERCENT;
     }
 
     function _getRoyaltyAmount(
-        uint256 offerAmount,
+        uint256 tradeAmount,
         uint256 royaltyPercent
     ) internal pure returns(uint256) {
-        return offerAmount * royaltyPercent / HUNDRED_PERCENT;
+        return tradeAmount * royaltyPercent / HUNDRED_PERCENT;
     }
 
     function _convertToSingleOrder(

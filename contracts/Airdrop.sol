@@ -119,9 +119,8 @@ contract HotpotMerkleAirdrop is Ownable {
         require(block.timestamp > startTime, "Airdrop hasn't started yet");
         require(ticketAmounts.length - 1 == lastGroupId, 
             "Invalid ticket amounts");
-        // TODO any possible collisions here?
         bytes32 leaf = keccak256(abi.encodePacked(addr, ticketAmounts));
-        require(MerkleProof.verify(_proof, merkleRoot, leaf), "invalid proof");
+        require(MerkleProof.verifyCalldata(_proof, merkleRoot, leaf), "invalid proof");
 
         bool isEligible;
         uint256 claimableTickets;
