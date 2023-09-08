@@ -31,7 +31,7 @@ const { simpleTrade } = require('../scripts/utils/simpleTrade');
 const { generateSalt } = require('../scripts/utils/generateSalt');
 const { generateOrderParameters } = require('../scripts/utils/generateOrderParameters');
 const { calculateTicketsForTrade } = require('../scripts/utils/calculateTicketsForTrade');
-const { getPotDeltaFromPrice } = require('../scripts/utils/getPotDeltaFromPrice');
+const { getPotDeltaFromPrice, getPotDeltaFromTradeAmount } = require('../scripts/utils/getPotDeltaFromTradeAmount');
 require("dotenv").config();
 
 
@@ -210,8 +210,7 @@ describe("Hotpot", function () {
       Check the currentPotSize and the balance of the Pot
      */
     // 1% of trade_amount
-    const royalty_amount = price * BigInt(ROYALTY_PERCENT) / BigInt(HUNDRED_PERCENT);
-    const expected_trade_fee = trade_amount - price - royalty_amount;
+    const expected_trade_fee = trade_amount * BigInt(TRADE_FEE) / BigInt(HUNDRED_PERCENT);
     const pot_balance = await ethers.provider.getBalance(hotpot.target);
     expect(pot_balance).to.equal(expected_trade_fee, "Incorrect pot balance");
     // 90% of trade_fee
@@ -318,7 +317,7 @@ describe("Hotpot", function () {
       Check the currentPotSize and the balance of the Pot
      */
     // 1% of trade_amount
-    const expected_trade_fee = price1 * BigInt(TRADE_FEE) / BigInt(HUNDRED_PERCENT); 
+    const expected_trade_fee = trade_amount1 * BigInt(TRADE_FEE) / BigInt(HUNDRED_PERCENT); 
     // 90% of trade_fee
     const expected_pot_size = expected_trade_fee * 
       BigInt(HUNDRED_PERCENT - INITIAL_POT_FEE) / BigInt(HUNDRED_PERCENT); // should be around 45ETH
@@ -380,7 +379,7 @@ describe("Hotpot", function () {
       Check the currentPotSize and the balance of the Pot
      */
     // 1% of trade_amount
-    const expected_trade2_fee = price2 * BigInt(TRADE_FEE) / BigInt(HUNDRED_PERCENT);
+    const expected_trade2_fee = trade_amount2 * BigInt(TRADE_FEE) / BigInt(HUNDRED_PERCENT);
     // 90% of trade_fee
     const trade_2_pot_delta = expected_trade2_fee * 
       BigInt(HUNDRED_PERCENT - INITIAL_POT_FEE) / BigInt(HUNDRED_PERCENT);
@@ -1334,8 +1333,12 @@ describe("Hotpot", function () {
     await batch;
 
     const pot_size = await hotpot.currentPotSize();
-    const expected_pot_size = getPotDeltaFromPrice(price_total);
-    expect(pot_size).to.equal(expected_pot_size, "Incorrect pot size");
+    const scale = 10n ** 10n;
+    const expected_pot_size = trade_fee_total * 
+      (BigInt(HUNDRED_PERCENT) - BigInt(INITIAL_POT_FEE)) / 
+      BigInt(HUNDRED_PERCENT);
+    expect(pot_size / scale).to.equal(
+      expected_pot_size / scale, "Incorrect pot size");
   });
 
   it('Misconfigured or malicious batches should revert', async function() {

@@ -19,11 +19,11 @@ async function tradeToFillThePot(marketplace, nft_collection) {
   const buffer = ethers.parseEther("10.0");
   const trade_fee_needed = (INITIAL_POT_LIMIT + buffer) * BigInt(HUNDRED_PERCENT) / 
     BigInt(HUNDRED_PERCENT - INITIAL_POT_FEE); 
-  const price = trade_fee_needed 
+  const trade_amount = trade_fee_needed 
     * BigInt(HUNDRED_PERCENT) 
     / BigInt(TRADE_FEE);
-  const royalty_amount = price * BigInt(ROYALTY_PERCENT) / BigInt(HUNDRED_PERCENT);
-  const trade_amount = price + trade_fee_needed + royalty_amount;
+  const royalty_amount = trade_amount * BigInt(ROYALTY_PERCENT) / BigInt(HUNDRED_PERCENT);
+  const price = trade_amount - royalty_amount - trade_fee_needed;
 
   /* 
     Sign the order
