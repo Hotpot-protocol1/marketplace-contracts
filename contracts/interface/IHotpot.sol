@@ -62,6 +62,7 @@ interface IHotpot {
         uint32 ticketIdStart,
         uint32 ticketIdEnd
     );
+    event CallbackGasLimitUpdated(uint32 _callbackGasLimit);
 
     function initialize(address _owner, InitializeParams calldata params) external;
 

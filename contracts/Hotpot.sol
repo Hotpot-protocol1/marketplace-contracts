@@ -27,6 +27,7 @@ contract Hotpot is IHotpot, OwnableUpgradeable, PausableUpgradeable, VRFV2Wrappe
     address public marketplace;
     address public operator;
     address public airdrop; // airdrop contract
+    uint32 private callbackGasLimit;
     uint256 constant MULTIPLIER = 10000;
 
     modifier onlyMarketplace() {
@@ -271,6 +272,13 @@ contract Hotpot is IHotpot, OwnableUpgradeable, PausableUpgradeable, VRFV2Wrappe
         tradeFee = _newTradeFee;
     }
 
+    function setChainlinkGasLimit(
+        uint32 _callbackGasLimit
+    ) external onlyOwner {
+        callbackGasLimit = _callbackGasLimit;
+        emit CallbackGasLimitUpdated(_callbackGasLimit);
+    }
+
     function updateNumberOfWinners(uint16 _nOfWinners) 
         external 
         onlyOwner 
@@ -395,7 +403,9 @@ contract Hotpot is IHotpot, OwnableUpgradeable, PausableUpgradeable, VRFV2Wrappe
     }
 
     function _requestRandomWinners() internal {
-        uint256 requestId = requestRandomness(1e6, 3, 1);
+        uint32 _gasLimit = callbackGasLimit;
+        require(_gasLimit > 0, "Gas limit not specified");
+        uint256 requestId = requestRandomness(_gasLimit, 3, 1); // TODO if you deploy on Polygon, increase confirmation blocks (check out reorgs)
         chainlinkRequests[requestId].exists = true;
         lastRequestId = requestId;
         requestIds.push(requestId);

@@ -73,13 +73,17 @@ describe("Hotpot", function () {
     // Configuring Marketplace
     await marketplace.setRaffleAddress(hotpot_address);
 
+    // Configure gas limit
+    const callback_gas_limit = 200000;
+    await hotpot.connect(owner).setChainlinkGasLimit(callback_gas_limit);
+
     /*
       Funding the Hotpot with LINK 
      */
     await dealLINKToAddress(hotpot.target, LINK_FUNDING); // 5k LINK should be enough
 
     return { factory, hotpot_impl, owner, otherAccount, beacon, marketplace,
-    hotpot, V3Aggregator, VRFCoordinator, VRFV2Wrapper};
+    hotpot, V3Aggregator, VRFCoordinator, VRFV2Wrapper };
   }
 
   async function deployCollectionFixture() {
@@ -474,6 +478,43 @@ describe("Hotpot", function () {
     expect(winning_ids.length).to.equal(
       await hotpot.numberOfWinners(), "Incorrect number winning ids");
     console.log("Winners:", winning_ids);
+  });
+
+  it('Receive Chainlink random word for 1 winner', async function() {
+    const { 
+      factory, hotpot_impl, owner, otherAccount, beacon, marketplace,
+      hotpot, V3Aggregator, VRFCoordinator, VRFV2Wrapper
+    } = await loadFixture(
+      deployEverythingFixture
+    );
+    const { nft_collection } = await deployCollectionFixture();
+
+    // Only one winner
+    const pot_limit = await hotpot.potLimit();
+    await hotpot.connect(owner).updateNumberOfWinners(1);
+    await hotpot.updatePrizeAmounts([pot_limit]);
+
+    await tradeToFillThePot(marketplace, nft_collection);
+    
+    /* 
+    The Pot is filled, so the random word is already requested
+     */
+    const request_id = await hotpot.lastRequestId();
+    let fulfilled_;
+    let exists_;
+    let fulfilled_after;
+
+    expect(request_id).to.not.equal(0, "Last request id is not set");
+    expect(await hotpot.requestIds(0)).to.equal(request_id, "Request ids array is not updated");
+    [fulfilled_, exists_, ] = await hotpot.chainlinkRequests(request_id);
+    expect(fulfilled_).to.equal(false, "The request should not be fulfilled before waiting");
+    expect(exists_).to.equal(true, "Request should exist");
+
+    // Manually fulfill the request
+    await VRFCoordinator.fulfillRandomWords(request_id, VRFV2Wrapper.target);
+    [fulfilled_after,,] = await hotpot.chainlinkRequests(request_id);
+    // Ensure the request is fulfilled    
+    expect(fulfilled_after).to.equal(true, "The request should be already fulfilled");
   });
 
   it("Should execute raffle", async function() {
