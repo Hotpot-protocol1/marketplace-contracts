@@ -4,19 +4,23 @@ import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/Own
 import {PausableUpgradeable} from "@openzeppelin/contracts-upgradeable/security/PausableUpgradeable.sol";
 import {IHotpot} from "./interface/IHotpot.sol";
 import {VRFV2WrapperConsumerBase} from "@chainlink/contracts/src/v0.8/VRFV2WrapperConsumerBase.sol";
+import {Client} from "@chainlink/contracts-ccip/src/v0.8/ccip/libraries/Client.sol";
+import {CCIPReceiver} from "@chainlink/contracts-ccip/src/v0.8/ccip/applications/CCIPReceiver.sol";
 
-contract Hotpot is IHotpot, OwnableUpgradeable, PausableUpgradeable, VRFV2WrapperConsumerBase {
+contract Hotpot is 
+    IHotpot, 
+    OwnableUpgradeable, 
+    PausableUpgradeable, 
+    VRFV2WrapperConsumerBase,
+    CCIPReceiver
+{
     uint256 public potLimit;
     uint256 public currentPotSize;
     uint256 public raffleTicketCost;
-    mapping(address => Prize) public claimablePrizes;
     mapping(uint256 => RequestStatus) public chainlinkRequests;
     mapping(uint16 => uint32[]) public winningTicketIds;
-    mapping(uint16 => uint128) public prizeAmounts;  // winner id => prize amount. For example, first winner gets 5ETH, second winner - 1 ETH, etc.
     uint256[] public requestIds;
     uint256 public lastRequestId;
-    uint128 private claimWindow;
-    uint16 public numberOfWinners;
     uint16 public fee; // 100 = 1%, 10000 = 100%;
     uint16 public tradeFee; // the percent of a trade amount that goes to the pot as pure ether
     uint32 public lastRaffleTicketId;
@@ -25,9 +29,11 @@ contract Hotpot is IHotpot, OwnableUpgradeable, PausableUpgradeable, VRFV2Wrappe
     uint32 public nextPotTicketIdStart;
     uint16 public currentPotId;
     address public marketplace;
+    address public crosschainMarketplace;
     address public operator;
     address public airdrop; // airdrop contract
     uint32 private callbackGasLimit;
+    uint64 private immutable senderChainSelector;
     uint256 constant MULTIPLIER = 10000;
 
     modifier onlyMarketplace() {
@@ -45,8 +51,14 @@ contract Hotpot is IHotpot, OwnableUpgradeable, PausableUpgradeable, VRFV2Wrappe
         _;
     }
 
-    constructor(address _link, address _vrfV2Wrapper) VRFV2WrapperConsumerBase(_link, _vrfV2Wrapper) {
+    constructor(
+        address _link, 
+        address _vrfV2Wrapper,
+        address _ccipRouter,
+        uint64 _senderChainSelector
+    ) VRFV2WrapperConsumerBase(_link, _vrfV2Wrapper) CCIPReceiver(_ccipRouter) {
         _disableInitializers();
+        senderChainSelector = _senderChainSelector;
     }
     
     function initialize(address _owner, InitializeParams calldata params) external initializer {
@@ -56,8 +68,6 @@ contract Hotpot is IHotpot, OwnableUpgradeable, PausableUpgradeable, VRFV2Wrappe
 
         potLimit = params.potLimit;
         raffleTicketCost = params.raffleTicketCost;
-        claimWindow = params.claimWindow;
-        numberOfWinners = params.numberOfWinners;
         fee = params.fee;
         tradeFee = params.tradeFee;
         lastRaffleTicketId = 1;
@@ -71,145 +81,21 @@ contract Hotpot is IHotpot, OwnableUpgradeable, PausableUpgradeable, VRFV2Wrappe
     }
 
     function executeTrade(
-        uint256 _amountInWei, 
+        uint256 _amountInWei,
+        uint256 _raffleFee,
         address _buyer, 
         address _seller, 
         uint256 _buyerPendingAmount, 
         uint256 _sellerPendingAmount
-    ) external payable onlyMarketplace whenNotPaused {
-		require(msg.value > 0, "No trade fee transferred (msg.value)");
-        uint256 potValueDelta = msg.value * (MULTIPLIER - fee) / MULTIPLIER;
-        uint256 _currentPotSize = currentPotSize;
-		uint256 _potLimit = potLimit;
-		uint256 _raffleTicketCost = raffleTicketCost;
-        uint32 _lastRaffleTicketIdBefore = lastRaffleTicketId;
-
+    ) external onlyMarketplace whenNotPaused {
         _executeTrade(
             _amountInWei,
+            _raffleFee,
             _buyer,
             _seller,
             _buyerPendingAmount,
-            _sellerPendingAmount,
-            _raffleTicketCost
+            _sellerPendingAmount
         );
-
-        /*
-            Request Chainlink random winners if the Pot is filled 
-         */
-		if(_currentPotSize + potValueDelta >= _potLimit) {
-            _finishRaffle(
-                potValueDelta, 
-                _lastRaffleTicketIdBefore,
-                _potLimit,
-                _currentPotSize
-            );
-        }
-		else {
-			currentPotSize += potValueDelta;
-		}
-    }
-
-    function batchExecuteTrade(
-        address buyer,
-        BatchTradeParams[] memory trades,
-        address[] memory sellers 
-    ) external payable onlyMarketplace whenNotPaused {
-        require(msg.value > 0, "No trade fee transferred (msg.value)");
-        uint256 potValueDelta = msg.value * (MULTIPLIER - fee) / MULTIPLIER;
-        uint256 _currentPotSize = currentPotSize;
-		uint256 _potLimit = potLimit;
-		uint256 _raffleTicketCost = raffleTicketCost;
-        uint32 _lastRaffleTicketIdBefore = lastRaffleTicketId;
-        uint256 trades_n = trades.length;
-
-        /* 
-            Pending amounts might change during trades,
-            so we update them locally to pass to the next
-            trade
-         */
-        uint256[] memory sellersPendingAmounts = new uint256[](sellers.length);
-        uint256 buyerPendingAmount = trades[0]._buyerPendingAmount;
-
-        // set initial pending amounts
-        for (uint256 i = 0; i < trades_n; i++) {
-            BatchTradeParams memory trade = trades[i];
-            sellersPendingAmounts[trade._sellerIndex] = trade._sellerPendingAmount;
-        }
-        
-        /* 
-            Execute trades, 
-            while updating local pending amounts
-         */
-        {
-            for(uint256 i = 0; i < trades_n; i++) {
-                BatchTradeParams memory trade = trades[i];
-                uint16 sellerIndex = trade._sellerIndex;
-
-                (
-                    buyerPendingAmount, 
-                    sellersPendingAmounts[sellerIndex]
-                ) = _executeTrade(
-                        trade._amountInWei,
-                        buyer,
-                        sellers[sellerIndex],
-                        buyerPendingAmount,
-                        sellersPendingAmounts[sellerIndex],
-                        _raffleTicketCost
-                );
-            }
-        }
-        
-
-        /*
-            Request Chainlink random winners if the Pot is filled 
-         */
-		if(_currentPotSize + potValueDelta >= _potLimit) {
-            _finishRaffle(
-                potValueDelta, 
-                _lastRaffleTicketIdBefore,
-                _potLimit,
-                _currentPotSize
-            );
-        }
-		else {
-			currentPotSize += potValueDelta;
-		}
-    }
-
-    function executeRaffle(
-        address[] calldata _winners
-    ) external onlyOperator {
-        uint _potLimit = potLimit;
-        require(_winners.length == numberOfWinners, "Must be equal to numberofWinners");
-        require(address(this).balance >= _potLimit, "The pot is not filled");
-
-        uint sum = 0;
-        for(uint16 i; i < _winners.length; i++) {
-            uint128 _prizeAmount = prizeAmounts[i];
-            Prize storage userPrize = claimablePrizes[_winners[i]];
-            userPrize.deadline = uint128(block.timestamp + claimWindow);
-            userPrize.amount = userPrize.amount + _prizeAmount;
-            sum += _prizeAmount;
-        }
-        require(sum <= _potLimit);
-
-        emit WinnersAssigned(_winners);
-    }
-
-    function claim() external whenNotPaused {
-        address payable user = payable(msg.sender);
-        Prize memory prize = claimablePrizes[user];
-        require(prize.amount > 0, "No available winnings");
-        require(block.timestamp < prize.deadline, "Claim window is closed");
-
-        claimablePrizes[user].amount = 0; 
-        user.transfer(prize.amount);
-        emit Claim(user, prize.amount);
-    }
-
-    function canClaim(address user) external view returns(bool) {
-        Prize memory prize = claimablePrizes[user];
-        return prize.amount > 0 && block.timestamp < prize.deadline;
     }
 
     function getWinningTicketIds(uint16 _potId) external view returns(uint32[] memory) {
@@ -247,6 +133,10 @@ contract Hotpot is IHotpot, OwnableUpgradeable, PausableUpgradeable, VRFV2Wrappe
         emit MarketplaceUpdated(_newMarketplace);
     }
 
+    function setCrosschainMarketplace(address _marketplace) external onlyOwner {
+        crosschainMarketplace = _marketplace;
+    }
+
     function setOperator(address _newOperator) external onlyMarketplace {
         operator = _newOperator;
     }
@@ -279,30 +169,6 @@ contract Hotpot is IHotpot, OwnableUpgradeable, PausableUpgradeable, VRFV2Wrappe
         emit CallbackGasLimitUpdated(_callbackGasLimit);
     }
 
-    function updateNumberOfWinners(uint16 _nOfWinners) 
-        external 
-        onlyOwner 
-    {
-        require(numberOfWinners != _nOfWinners, 
-            "Number of winners is currently the same");
-        numberOfWinners = _nOfWinners;
-        emit NumberOfWinnersUpdated(_nOfWinners);
-    }
-
-    function updatePrizeAmounts(uint128[] memory _newPrizeAmounts)
-        external 
-        onlyOwner 
-    {
-        require(_newPrizeAmounts.length == numberOfWinners, 
-            "Array length doesnt match the number of winners");
-        for (uint16 i = 0; i < _newPrizeAmounts.length; i++) {
-            if (prizeAmounts[i] != _newPrizeAmounts[i]) {
-                prizeAmounts[i] = _newPrizeAmounts[i];
-            }
-        }
-        emit PrizeAmountsUpdated(_newPrizeAmounts);
-    }
-
     /* 
 
             ***
@@ -311,6 +177,44 @@ contract Hotpot is IHotpot, OwnableUpgradeable, PausableUpgradeable, VRFV2Wrappe
      */
 
     function _executeTrade(
+        uint256 _amountInWei,
+        uint256 _raffleFee,
+        address _buyer, 
+        address _seller, 
+        uint256 _buyerPendingAmount, 
+        uint256 _sellerPendingAmount
+    ) internal {   
+        uint256 _currentPotSize = currentPotSize;
+		uint256 _potLimit = potLimit;
+		uint256 _raffleTicketCost = raffleTicketCost;
+        uint32 _lastRaffleTicketIdBefore = lastRaffleTicketId;
+
+        _processTickets(
+            _amountInWei,
+            _buyer,
+            _seller,
+            _buyerPendingAmount,
+            _sellerPendingAmount,
+            _raffleTicketCost
+        );
+
+        /*
+            Request Chainlink random winners if the Pot is filled 
+         */
+		if(_currentPotSize + _raffleFee >= _potLimit) {
+            _finishRaffle(
+                _raffleFee, 
+                _lastRaffleTicketIdBefore,
+                _potLimit,
+                _currentPotSize
+            );
+        }
+		else {
+			currentPotSize += _raffleFee;
+		}
+    }
+
+    function _processTickets(
         uint256 _amountInWei, 
         address _buyer, 
         address _seller, 
@@ -423,22 +327,8 @@ contract Hotpot is IHotpot, OwnableUpgradeable, PausableUpgradeable, VRFV2Wrappe
             randomWord: randomWord
         });
 
-        uint256 n_winners = numberOfWinners;
-        uint32[] memory derivedRandomWords = new uint32[](n_winners);
+        uint32[] memory derivedRandomWords = new uint32[](1);
         derivedRandomWords[0] = _normalizeValueToRange(randomWord, rangeFrom, rangeTo);
-        uint256 nextRandom;
-        uint32 nextRandomNormalized;
-        for (uint256 i = 1; i < n_winners; i++) {
-            nextRandom = uint256(keccak256(abi.encode(randomWord, i)));
-            nextRandomNormalized = _normalizeValueToRange(nextRandom, rangeFrom, rangeTo);
-            derivedRandomWords[i] = _incrementRandomValueUntilUnique(
-                nextRandomNormalized,
-                derivedRandomWords,
-                rangeFrom,
-                rangeTo
-            );
-        }
-
         winningTicketIds[currentPotId] = derivedRandomWords;
         emit RandomnessFulfilled(currentPotId, randomWord);
         currentPotId++;
@@ -474,5 +364,31 @@ contract Hotpot is IHotpot, OwnableUpgradeable, PausableUpgradeable, VRFV2Wrappe
                 }
             }
         }
+    }
+
+    function _ccipReceive(Client.Any2EVMMessage memory message) internal override {
+        address sender = address(bytes20(message.sender));
+        require(sender == crosschainMarketplace, 
+            "Anauthorized crosschain call");
+        (
+            uint256 _amountInWei,
+            uint256 _raffleFee,
+            address _buyer, 
+            address _seller, 
+            uint256 _buyerPendingAmount, 
+            uint256 _sellerPendingAmount
+        ) = abi.decode(message.data, (uint256, uint256, address, address, uint256, uint256));
+
+        require(message.sourceChainSelector == senderChainSelector, 
+            "Unsupported chain");
+        
+        _executeTrade(
+            _amountInWei,
+            _raffleFee,
+            _buyer,
+            _seller,
+            _buyerPendingAmount,
+            _sellerPendingAmount
+        );
     }
 }

@@ -4,26 +4,30 @@ pragma solidity ^0.8.19;
 import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import {ReentrancyGuardUpgradeable} from "@openzeppelin/contracts-upgradeable/security/ReentrancyGuardUpgradeable.sol";
 import {EIP712Upgradeable, ECDSAUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/cryptography/EIP712Upgradeable.sol";
-import {IOrderFulfiller} from "./interface/IOrderFulfiller.sol";
-import "./interface/IHotpot.sol";
-import "./interface/IMarketplace.sol";
+import {IOrderFulfiller} from "../interface/IOrderFulfiller.sol";
+import "../interface/IHotpot.sol";
+import "../interface/IMarketplace.sol";
 
-contract Marketplace is 
-    IMarketplace, 
-    IOrderFulfiller, 
+
+abstract contract MarketplaceBase is 
+    IMarketplace,
     ReentrancyGuardUpgradeable, 
     OwnableUpgradeable,
-    EIP712Upgradeable
+    EIP712Upgradeable,
+    IOrderFulfiller 
 {
     /* 
         Hotpot variables
      */
     address public raffleContract; 
-    uint16 public raffleTradeFee;
     address public operator;
+    uint128 private claimWindow;
+    uint128 public prizeAmount;  // winner id => prize amount. For example, first winner gets 5ETH, second winner - 1 ETH, etc.
+    uint16 public raffleTradeFee;
 
     // Status
     mapping(bytes32 => OrderStatus) public orderStatus; // order hash => OrderStatus
+    mapping(address => Prize) public claimablePrizes;
 
     /* 
         EIP712
@@ -48,118 +52,33 @@ contract Marketplace is
      */
     uint256 constant HUNDRED_PERCENT = 10000;
 
+    modifier onlyOperator() {
+        require(msg.sender == operator, "Caller must be the operator");
+        _;
+    }
+
     constructor() {
         _disableInitializers();
     }
 
-    function initialize(uint16 _raffleTradeFee, address _operator)
-        external 
-        initializer
+    function initialize(
+        uint16 _raffleTradeFee, 
+        address _operator,
+        uint128 _claimWindow
+    ) external initializer
     {
         __ReentrancyGuard_init();
         __Ownable_init();
         __EIP712_init("Hotpot", "0.1.0");
         raffleTradeFee = _raffleTradeFee;
         operator = _operator;
+        claimWindow = _claimWindow;
         DOMAIN_SEPARATOR = _domainSeparatorV4();
     }
 
-    function fulfillOrder(OrderParameters memory parameters)
-        external 
-        payable
-        nonReentrant 
-    {
-        address buyer = msg.sender;
-        OfferItem memory offerItem = parameters.offerItem;
-        RoyaltyData memory royalty = parameters.royalty;
-        PendingAmountData memory pendingAmounts = parameters.pendingAmountsData;
-        uint256 tradeAmount = _calculateTradeAmount(
-            offerItem.offerAmount, 
-            royalty.royaltyPercent
-        );
-        uint256 hotpotFeeAmount = _getHotpotFeeAmount(tradeAmount);
-        uint256 royaltyAmount = _getRoyaltyAmount(
-            tradeAmount, royalty.royaltyPercent
-        );
-        require(msg.value >= tradeAmount, "Insufficient ether provided");
-
-        // validating and fulfilling the order
-        _fulfillOrder(parameters, buyer, royaltyAmount, tradeAmount);
-
-        /* 
-            Execute Hotpot trade to generate tickets
-         */
-        address _raffleContract = raffleContract;
-        if (_raffleContract != address(0)) {
-            IHotpot(_raffleContract).executeTrade{ value: hotpotFeeAmount }(
-                tradeAmount,
-                buyer,
-                parameters.offerer,
-                pendingAmounts.buyerPendingAmount,
-                pendingAmounts.offererPendingAmount
-            );
-        }
-    }
-
-    function batchFulfillOrder(
-        BatchOrderParameters[] memory parameters,
-        address[] memory offerers
-    )
-        external payable nonReentrant
-    {
-        address buyer = msg.sender;
-        uint256 orders_n = parameters.length;
-        _validateBatchFulfillOrderParameters(parameters, offerers);
-        
-        /* 
-            Fulfilling orders
-         */
-        uint256 tradeAmountTotal = 0;
-        uint256 raffleFeeTotal = 0;
-        IHotpot.BatchTradeParams[] memory batchTradeParams = 
-            new IHotpot.BatchTradeParams[](orders_n);
-
-        for(uint256 i = 0; i < orders_n; i++) {
-            OrderParameters memory order = _convertToSingleOrder(
-                parameters[i]
-            );
-            OfferItem memory offerItem = order.offerItem;
-            RoyaltyData memory royalty = order.royalty;
-            uint256 tradeAmount = _calculateTradeAmount(
-                offerItem.offerAmount,
-                royalty.royaltyPercent
-            );
-            uint256 hotpotFeeAmount = _getHotpotFeeAmount(tradeAmount);
-            uint256 royaltyAmount = _getRoyaltyAmount(
-                tradeAmount, royalty.royaltyPercent
-            );
-            tradeAmountTotal += tradeAmount;
-            raffleFeeTotal += hotpotFeeAmount;
-
-            // Preparing parameters for executeTrade
-            batchTradeParams[i] = _convertToBatchTradeParams(
-                parameters[i],
-                tradeAmount
-            );
-
-            // validating and fulfilling the order
-            _fulfillOrder(order, buyer, royaltyAmount, tradeAmount);
-        }
-
-        require(msg.value >= tradeAmountTotal, "Insufficient ether provided");
-
-        /* 
-            Execute batch trade
-         */
-        address _raffleContract = raffleContract;
-        if (_raffleContract != address(0)) {
-            IHotpot(_raffleContract).batchExecuteTrade{ value: raffleFeeTotal }(
-                buyer,
-                batchTradeParams,
-                offerers
-            );
-        }
-    }
+    function fulfillOrder(
+        OrderParameters memory parameters
+    ) external payable virtual {}
 
     function cancelOrder(PureOrder memory order)
         external
@@ -179,6 +98,45 @@ contract Marketplace is
             order.offerItem.offerTokenId,
             _hash
         );
+    }
+
+    function executeRaffle(
+        address[] calldata _winners
+    ) external onlyOperator {
+        uint sum = 0;
+        uint128 _prizeAmount = prizeAmount;
+        for(uint16 i; i < _winners.length; i++) {
+            Prize storage userPrize = claimablePrizes[_winners[i]];
+            userPrize.deadline = uint128(block.timestamp + claimWindow);
+            userPrize.amount = userPrize.amount + _prizeAmount;
+            sum += _prizeAmount;
+        }
+        require(sum <= address(this).balance);
+
+        emit WinnersAssigned(_winners);
+    }
+
+    function claim() external {
+        address payable user = payable(msg.sender);
+        Prize memory prize = claimablePrizes[user];
+        require(prize.amount > 0, "No available winnings");
+        require(block.timestamp < prize.deadline, "Claim window is closed");
+
+        claimablePrizes[user].amount = 0;
+        user.transfer(prize.amount);
+        emit Claim(user, prize.amount);
+    }
+
+    function updatePrizeAmount(uint128 _newPrizeAmount)
+        external 
+        onlyOwner 
+    {
+        prizeAmount = _newPrizeAmount;
+    }
+
+    function canClaim(address user) external view returns(bool) {
+        Prize memory prize = claimablePrizes[user];
+        return prize.amount > 0 && block.timestamp < prize.deadline;
     }
 
     function setRaffleAddress(address _raffleAddress) external onlyOwner {
@@ -267,29 +225,6 @@ contract Marketplace is
             tradeAmount,
             _orderHash
         );
-    }
-
-    /* 
-        Validates that parameters are sorted by sellers
-        and that they match an array of offerers
-     */
-    function _validateBatchFulfillOrderParameters(
-        BatchOrderParameters[] memory parameters,
-        address[] memory offerers
-    ) internal pure {
-        uint256 orders_n = parameters.length;
-        uint256 offerers_n = offerers.length;
-        require(orders_n >= offerers_n, "Invalid number of sellers");
-        /* 
-            Go through orders and check
-            that they match offerers from params
-         */
-        for(uint256 i = 0; i < orders_n; i++) {
-            BatchOrderParameters memory order = parameters[i];
-            require(order.offererIndex < offerers_n, "Invalid offerer index");
-            require(order.offerer == offerers[order.offererIndex], 
-                "Offerers array mismath");
-        }
     }
 
     function _validateOrderData(OrderParameters memory parameters) 
@@ -413,32 +348,5 @@ contract Marketplace is
         uint256 royaltyPercent
     ) internal pure returns(uint256) {
         return tradeAmount * royaltyPercent / HUNDRED_PERCENT;
-    }
-
-    function _convertToSingleOrder(
-        BatchOrderParameters memory order
-    ) internal pure returns (OrderParameters memory singleOrder) {
-        // removing offererIndex
-        singleOrder = OrderParameters({
-            offerer: order.offerer,
-            offerItem: order.offerItem,
-            royalty: order.royalty,
-            pendingAmountsData: order.pendingAmountsData,
-            salt: order.salt,
-            orderSignature: order.orderSignature,
-            pendingAmountsSignature: order.pendingAmountsSignature
-        });
-    }
-
-    function _convertToBatchTradeParams(
-        BatchOrderParameters memory order,
-        uint256 tradeAmount
-    ) internal pure returns (IHotpot.BatchTradeParams memory params) {
-        params = IHotpot.BatchTradeParams({
-            _amountInWei: tradeAmount, 
-            _sellerIndex: order.offererIndex,
-            _buyerPendingAmount: order.pendingAmountsData.buyerPendingAmount,
-            _sellerPendingAmount: order.pendingAmountsData.offererPendingAmount
-        });
     }
 }

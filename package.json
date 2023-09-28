@@ -15,6 +15,7 @@
   "main": "index.js",
   "dependencies": {
     "@chainlink/contracts": "^0.6.1",
+    "@chainlink/contracts-ccip": "^0.7.6",
     "@openzeppelin/contracts": "^4.9.1",
     "@openzeppelin/contracts-upgradeable": "^4.9.1",
     "dotenv": "^16.3.1"
