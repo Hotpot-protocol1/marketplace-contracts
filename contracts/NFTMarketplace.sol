@@ -5,6 +5,7 @@ import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/Own
 import {ReentrancyGuardUpgradeable} from "@openzeppelin/contracts-upgradeable/security/ReentrancyGuardUpgradeable.sol";
 import {EIP712Upgradeable, ECDSAUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/cryptography/EIP712Upgradeable.sol";
 import {IOrderFulfiller} from "./interface/IOrderFulfiller.sol";
+import {IERC1155} from "@openzeppelin/contracts/token/ERC1155/IERC1155.sol";
 import "./interface/IHotpot.sol";
 import "./interface/IMarketplace.sol";
 
@@ -249,9 +250,19 @@ contract Marketplace is
             offerer.transfer(offerItem.offerAmount);
             
             // Transfer NFT to the caller
-            IERC721(offerItem.offerToken).safeTransferFrom(
-                offerer, buyer, offerItem.offerTokenId
-            );
+            if (parameters.tokenType == OfferTokenType.ERC721) {
+                IERC721(offerItem.offerToken).safeTransferFrom(
+                    offerer, buyer, offerItem.offerTokenId
+                );
+            }
+            // Individual ERC1155 transfer
+            else {
+                bytes memory data = "";
+                IERC1155(offerItem.offerToken).safeTransferFrom(
+                    offerer, buyer, offerItem.offerTokenId, 1, data
+                );
+            }
+            
 
             // Transfer royalty
             if (royalty.royaltyRecipient != address(0) && royaltyAmount > 0) {
@@ -289,6 +300,9 @@ contract Marketplace is
             require(order.offererIndex < offerers_n, "Invalid offerer index");
             require(order.offerer == offerers[order.offererIndex], 
                 "Offerers array mismath");
+            require(order.tokenType == OfferTokenType.ERC721 || 
+                order.tokenType == OfferTokenType.ERC1155,
+                "Unsupported token type");
         }
     }
 
@@ -302,6 +316,10 @@ contract Marketplace is
         // validate signer
         require(orderSigner == parameters.offerer, "Offerer address must be the signer");
         require(msg.sender != parameters.offerer, "Signer cannot fulfill their own order");
+        require(parameters.tokenType == OfferTokenType.ERC721 || 
+            parameters.tokenType == OfferTokenType.ERC1155, 
+            "Unsupported offer token type"
+        );
     }
 
     function _validatePendingAmountData(
@@ -426,7 +444,8 @@ contract Marketplace is
             pendingAmountsData: order.pendingAmountsData,
             salt: order.salt,
             orderSignature: order.orderSignature,
-            pendingAmountsSignature: order.pendingAmountsSignature
+            pendingAmountsSignature: order.pendingAmountsSignature,
+            tokenType: order.tokenType
         });
     }
 

@@ -18,7 +18,9 @@ const {
   INITIAL_CLAIM_WINDOW,
   LINK_FUNDING,
   ROYALTY_PERCENT,
-  ROYALTY_RECIPIENT_ID
+  ROYALTY_RECIPIENT_ID,
+  ERC1155_trade_type,
+  ERC721_trade_type
 } = require("../scripts/utils/parameters.js");
 const { tradeToFillThePot } = require("../scripts/utils/tradeToFillThePot.js");
 const { deployMarketplace } = require('../scripts/deploy/Marketplace');
@@ -86,10 +88,13 @@ describe("Hotpot", function () {
     hotpot, V3Aggregator, VRFCoordinator, VRFV2Wrapper };
   }
 
-  async function deployCollectionFixture() {
+  async function deployCollectionsFixture() {
     const nft_collection = await ethers.deployContract("ERC721Mock");
     await nft_collection.waitForDeployment();
-    return {nft_collection};
+
+    const erc1155_collection = await ethers.deployContract("ERC1155Mock");
+    await erc1155_collection.waitForDeployment();
+    return {nft_collection, erc1155_collection};
   }
 
   async function deployEverythingAndFillPotFixture() {
@@ -100,9 +105,9 @@ describe("Hotpot", function () {
     } = await loadFixture(
       deployEverythingFixture
     );
-    const { nft_collection } = await loadFixture(deployCollectionFixture);
+    const { nft_collection } = await loadFixture(deployCollectionsFixture);
 
-    await tradeToFillThePot(marketplace, nft_collection, 1);
+    await tradeToFillThePot(marketplace, nft_collection, ERC721_trade_type);
 
     return {
       factory, hotpot_impl, owner, 
@@ -158,7 +163,7 @@ describe("Hotpot", function () {
     } = await loadFixture(
       deployEverythingFixture
     );
-    let { nft_collection } = await loadFixture(deployCollectionFixture);
+    let { nft_collection } = await loadFixture(deployCollectionsFixture);
     let [, user1, user2] = await ethers.getSigners();
     const buyer = await user1.getAddress();
     const seller = await user2.getAddress();
@@ -243,6 +248,47 @@ describe("Hotpot", function () {
       ethers.formatEther(pot_balance), ethers.formatEther(expected_pot_size));
     console.log("Last ticket id: ", Number(lastTicketId));
   });
+
+  it('ERC1155 fulfill order', async function() {
+    let { 
+      factory, hotpot_impl, owner, 
+      otherAccount, marketplace, hotpot
+    } = await loadFixture(
+      deployEverythingFixture
+    );
+    let { erc1155_collection } = await loadFixture(deployCollectionsFixture);
+    let [, user1, user2] = await ethers.getSigners();
+
+    /* 
+      Trade
+     */
+    const end_time = 3692620410; // just some remote point in the future
+    const price = ethers.parseEther("0.8");
+    const token_type = ERC1155_trade_type;
+    const [trade, orderHash] = await simpleTrade(
+      marketplace, 
+      erc1155_collection,
+      price,
+      0,
+      0,
+      user2,
+      user1,
+      end_time,
+      undefined,
+      token_type
+    );
+
+    await trade;
+
+    // Check token holder
+    const buyer = await user1.getAddress();
+    const token_id = 1;
+    const tokens = await erc1155_collection.balanceOf(buyer, token_id);
+    expect(tokens).to.equal(1, "Token is not transferred to buyer");
+    // Check order status
+    const order_status = await marketplace.orderStatus(orderHash);
+    expect(order_status.isFulfilled).to.equal(true, "Order status is not updated");
+  });
   
   it("Two trades should correctly generate tickets and set a range", async function() {
     let { 
@@ -251,7 +297,7 @@ describe("Hotpot", function () {
     } = await loadFixture(
       deployEverythingFixture
     );
-    let { nft_collection } = await loadFixture(deployCollectionFixture);
+    let { nft_collection } = await loadFixture(deployCollectionsFixture);
 
     /*
       Trade #1
@@ -422,14 +468,12 @@ describe("Hotpot", function () {
     } = await loadFixture(
       deployEverythingFixture
     );
-    const { nft_collection } = await loadFixture(deployCollectionFixture);
+    const { nft_collection } = await loadFixture(deployCollectionsFixture);
 
-    const trade = tradeToFillThePot(marketplace, nft_collection);
+    const trade = tradeToFillThePot(marketplace, nft_collection, ERC721_trade_type);
     /*
       Check the event and request data
      */
-    const ticket_id_from = 2;
-    const ticket_id_to = 120003;
     await trade;
     const request_id = await hotpot.lastRequestId();
     let request_created;
@@ -487,7 +531,7 @@ describe("Hotpot", function () {
     } = await loadFixture(
       deployEverythingFixture
     );
-    const { nft_collection } = await deployCollectionFixture();
+    const { nft_collection } = await deployCollectionsFixture();
 
     // Only one winner
     const pot_limit = await hotpot.potLimit();
@@ -729,7 +773,7 @@ describe("Hotpot", function () {
     } = await loadFixture(
       deployEverythingFixture
     );
-    let { nft_collection } = await loadFixture(deployCollectionFixture);
+    let { nft_collection } = await loadFixture(deployCollectionsFixture);
     const [, user1, user2] = await ethers.getSigners();
     const price = ethers.parseEther("4.0");
     const trade_amount = getTradeAmountFromPrice(price);
@@ -773,7 +817,7 @@ describe("Hotpot", function () {
     } = await loadFixture(
       deployEverythingFixture
     );
-    let { nft_collection } = await loadFixture(deployCollectionFixture);
+    let { nft_collection } = await loadFixture(deployCollectionsFixture);
     const [, offerer, buyer, user3] = await ethers.getSigners();
     const price = ethers.parseEther("0.02");
     const buyer_pending_amount = ethers.parseEther("0.05");
@@ -809,7 +853,7 @@ describe("Hotpot", function () {
     } = await loadFixture(
       deployEverythingFixture
     );
-    let { nft_collection } = await loadFixture(deployCollectionFixture);
+    let { nft_collection } = await loadFixture(deployCollectionsFixture);
     const [, user1, user2] = await ethers.getSigners();
     const price = ethers.parseEther("4.0");
     const trade_amount = getTradeAmountFromPrice(price);
@@ -858,7 +902,7 @@ describe("Hotpot", function () {
     } = await loadFixture(
       deployEverythingFixture
     );
-    let { nft_collection } = await loadFixture(deployCollectionFixture);
+    let { nft_collection } = await loadFixture(deployCollectionsFixture);
     const [, user1, user2] = await ethers.getSigners();
     const signers = await ethers.getSigners();
     const royalty_recipient = await signers[ROYALTY_RECIPIENT_ID].getAddress();
@@ -890,7 +934,7 @@ describe("Hotpot", function () {
     } = await loadFixture(
       deployEverythingFixture
     );
-    let { nft_collection } = await loadFixture(deployCollectionFixture);
+    let { nft_collection } = await loadFixture(deployCollectionsFixture);
     const [operator, buyer, offerer, user3] = await ethers.getSigners();
     const price = ethers.parseEther("4.0");
     const end_time = 3692620410;
@@ -995,7 +1039,7 @@ describe("Hotpot", function () {
     } = await loadFixture(
       deployEverythingFixture
     );
-    let { nft_collection } = await loadFixture(deployCollectionFixture);
+    let { nft_collection } = await loadFixture(deployCollectionsFixture);
 
     /* 
     
@@ -1178,7 +1222,7 @@ describe("Hotpot", function () {
     } = await loadFixture(
       deployEverythingFixture
     );
-    let { nft_collection } = await loadFixture(deployCollectionFixture);
+    let { nft_collection } = await loadFixture(deployCollectionsFixture);
 
     /* 
     
@@ -1388,7 +1432,7 @@ describe("Hotpot", function () {
     } = await loadFixture(
       deployEverythingFixture
     );
-    let { nft_collection } = await loadFixture(deployCollectionFixture);
+    let { nft_collection } = await loadFixture(deployCollectionsFixture);
 
     /* 
     
@@ -1499,6 +1543,8 @@ describe("Hotpot", function () {
     expect(batch5).to.be.revertedWith("Insufficient ether provided");
   });
 
+  // TODO batch fulfill order with different token types
+  // TODO check token holder after erc1155 order
   // TODO batch fulfill order triggers the pot. Ticket ranges are correct
 
   // TODO: pause and check that actions are unavailable. only owner can pause

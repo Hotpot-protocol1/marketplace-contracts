@@ -1,7 +1,7 @@
 const { ethers } = require('ethers');
 const { getEip712Domain } = require('./getEip712Domain');
 const { listingTypes } = require('./EIP712_types');
-const { ROYALTY_PERCENT, ROYALTY_RECIPIENT_ID } = require('./parameters');
+const { ROYALTY_PERCENT, ROYALTY_RECIPIENT_ID, ERC721_trade_type, ERC1155_trade_type } = require('./parameters');
 const { generateSalt } = require('./generateSalt');
 
 async function mintAndSignNewItem(
@@ -10,11 +10,23 @@ async function mintAndSignNewItem(
   nft_collection, 
   price,
   end_time,
-  salt
+  salt,
+  token_type
 ) {
+  token_type = token_type !== undefined ? token_type : ERC721_trade_type;
   await nft_collection.mint(lister);
   const token_id = await nft_collection.lastTokenId();
-  await nft_collection.connect(lister).approve(marketplace.target, token_id);
+
+  // Approve
+  if (token_type == ERC721_trade_type) {
+    await nft_collection.connect(lister).approve(marketplace.target, token_id);
+  }
+  else if (token_type == ERC1155_trade_type) {
+    await nft_collection.connect(lister).setApprovalForAll(
+      marketplace.target, true
+    );
+  }
+
   salt = salt || generateSalt();
   const signers = await hre.ethers.getSigners();
   const royalty_recipient = signers[ROYALTY_RECIPIENT_ID];

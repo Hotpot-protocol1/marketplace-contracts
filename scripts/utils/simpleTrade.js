@@ -1,5 +1,6 @@
 const { getTradeAmountFromPrice } = require('./getTradeAmountFromPrice');
 const { generateOrderParameters } = require('./generateOrderParameters');
+const { ERC721_trade_type } = require('./parameters');
 
 /* 
   Lists a new item for a given price from user1 account (second signer)
@@ -15,10 +16,12 @@ async function simpleTrade(
   offerer,
   buyer,
   end_time,
-  salt
+  salt,
+  token_type
 ) {
   const [owner, user1, user2] = await ethers.getSigners();
   buyer = buyer || user2;
+  token_type = token_type !== undefined ? token_type : ERC721_trade_type;
   const trade_amount = getTradeAmountFromPrice(price);
   const [
     order_parameters, 
@@ -33,7 +36,8 @@ async function simpleTrade(
     offerer,
     buyer,
     end_time,
-    salt
+    salt,
+    token_type
   );
 
   const trade = marketplace.connect(buyer).fulfillOrder(order_parameters, {

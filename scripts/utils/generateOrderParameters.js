@@ -4,6 +4,7 @@ const { signPendingAmounts } = require('./signPendingAmounts');
 const { getOrderParameters } = require('./getOrderParameters');
 const { mintAndSignNewItem } = require('./mintAndSignNewItem');
 const { getTradeAmountFromPrice } = require('./getTradeAmountFromPrice');
+const { ERC721_trade_type } = require('./parameters');
 
 
 async function generateOrderParameters(
@@ -15,16 +16,18 @@ async function generateOrderParameters(
   offerer,
   buyer,
   end_time,
-  salt
+  salt,
+  token_type
 ) {
 
   const [owner, user1, user2] = await ethers.getSigners();
   offerer = offerer || user1;
   buyer = buyer || user2;
   end_time = end_time ? end_time : 3692620407;
+  token_type = token_type !== undefined ? token_type : ERC721_trade_type;
   
   const [signature, order_data] = await mintAndSignNewItem(
-    offerer, marketplace, nft_collection, price, end_time, salt
+    offerer, marketplace, nft_collection, price, end_time, salt, token_type
   );
   const order_hash = getOrderHash(order_data, marketplace.target);
   const [pa_signature, pending_amount_data] = await signPendingAmounts(
@@ -38,7 +41,8 @@ async function generateOrderParameters(
     order_data, 
     pending_amount_data,
     signature,
-    pa_signature
+    pa_signature,
+    token_type
   );
 
   return [order_parameters, order_hash, order_data];

@@ -5,7 +5,12 @@ import {PausableUpgradeable} from "@openzeppelin/contracts-upgradeable/security/
 import {IHotpot} from "./interface/IHotpot.sol";
 import {VRFV2WrapperConsumerBase} from "@chainlink/contracts/src/v0.8/VRFV2WrapperConsumerBase.sol";
 
-contract Hotpot is IHotpot, OwnableUpgradeable, PausableUpgradeable, VRFV2WrapperConsumerBase {
+contract Hotpot is 
+    IHotpot, 
+    OwnableUpgradeable, 
+    PausableUpgradeable, 
+    VRFV2WrapperConsumerBase
+{
     uint256 public potLimit;
     uint256 public currentPotSize;
     uint256 public raffleTicketCost;

@@ -11,6 +11,8 @@ const INITIAL_CLAIM_WINDOW = 24 * 60 * 60; // one day
 const LINK_FUNDING = ethers.parseUnits("5000", 18);
 const ROYALTY_PERCENT = 50; // 0.5%
 const ROYALTY_RECIPIENT_ID = 3;
+const ERC721_trade_type = 0;
+const ERC1155_trade_type = 1;
 
 module.exports = {
   INITIAL_POT_FEE,
@@ -23,5 +25,7 @@ module.exports = {
   INITIAL_CLAIM_WINDOW,
   LINK_FUNDING,
   ROYALTY_PERCENT,
-  ROYALTY_RECIPIENT_ID
+  ROYALTY_RECIPIENT_ID,
+  ERC721_trade_type,
+  ERC1155_trade_type
 }

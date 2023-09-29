@@ -7,6 +7,7 @@ interface IOrderFulfiller {
         uint256 salt;
         bytes orderSignature;
         bytes pendingAmountsSignature;
+        OfferTokenType tokenType;
     }
 
     // Order without pending amounts
@@ -44,11 +45,17 @@ interface IOrderFulfiller {
         uint256 salt;
         bytes orderSignature;
         bytes pendingAmountsSignature;
+        OfferTokenType tokenType;
     }
 
     struct OrderStatus {
         bool isFulfilled;
         bool isCancelled;
+    }
+
+    enum OfferTokenType {
+        ERC721,
+        ERC1155
     }
 
     event OrderFulfilled(
