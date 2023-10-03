@@ -70,7 +70,6 @@ contract Marketplace is
         payable
         nonReentrant 
     {
-        address buyer = msg.sender;
         OfferItem memory offerItem = parameters.offerItem;
         RoyaltyData memory royalty = parameters.royalty;
         PendingAmountData memory pendingAmounts = parameters.pendingAmountsData;
@@ -85,7 +84,7 @@ contract Marketplace is
         require(msg.value >= tradeAmount, "Insufficient ether provided");
 
         // validating and fulfilling the order
-        _fulfillOrder(parameters, buyer, royaltyAmount, tradeAmount);
+        _fulfillOrder(parameters, parameters.receiver, royaltyAmount, tradeAmount);
 
         /* 
             Execute Hotpot trade to generate tickets
@@ -94,7 +93,7 @@ contract Marketplace is
         if (_raffleContract != address(0)) {
             IHotpot(_raffleContract).executeTrade{ value: hotpotFeeAmount }(
                 tradeAmount,
-                buyer,
+                parameters.receiver,
                 parameters.offerer,
                 pendingAmounts.buyerPendingAmount,
                 pendingAmounts.offererPendingAmount
@@ -108,8 +107,8 @@ contract Marketplace is
     )
         external payable nonReentrant
     {
-        address buyer = msg.sender;
         uint256 orders_n = parameters.length;
+        address receiver = parameters[0].receiver;
         _validateBatchFulfillOrderParameters(parameters, offerers);
         
         /* 
@@ -144,7 +143,7 @@ contract Marketplace is
             );
 
             // validating and fulfilling the order
-            _fulfillOrder(order, buyer, royaltyAmount, tradeAmount);
+            _fulfillOrder(order, order.receiver, royaltyAmount, tradeAmount);
         }
 
         require(msg.value >= tradeAmountTotal, "Insufficient ether provided");
@@ -155,7 +154,7 @@ contract Marketplace is
         address _raffleContract = raffleContract;
         if (_raffleContract != address(0)) {
             IHotpot(_raffleContract).batchExecuteTrade{ value: raffleFeeTotal }(
-                buyer,
+                receiver,
                 batchTradeParams,
                 offerers
             );
@@ -214,7 +213,7 @@ contract Marketplace is
      */
     function _fulfillOrder(
         OrderParameters memory parameters,
-        address buyer,
+        address receiver,
         uint256 royaltyAmount,
         uint256 tradeAmount
     ) internal {
@@ -252,18 +251,17 @@ contract Marketplace is
             // Transfer NFT to the caller
             if (parameters.tokenType == OfferTokenType.ERC721) {
                 IERC721(offerItem.offerToken).safeTransferFrom(
-                    offerer, buyer, offerItem.offerTokenId
+                    offerer, receiver, offerItem.offerTokenId
                 );
             }
             // Individual ERC1155 transfer
             else {
                 bytes memory data = "";
                 IERC1155(offerItem.offerToken).safeTransferFrom(
-                    offerer, buyer, offerItem.offerTokenId, 1, data
+                    offerer, receiver, offerItem.offerTokenId, 1, data
                 );
             }
             
-
             // Transfer royalty
             if (royalty.royaltyRecipient != address(0) && royaltyAmount > 0) {
                 royalty.royaltyRecipient.transfer(royaltyAmount);
@@ -272,7 +270,7 @@ contract Marketplace is
 
         emit OrderFulfilled(
             offerer,
-            buyer,
+            receiver,
             offerItem.offerToken,
             offerItem.offerTokenId,
             tradeAmount,
@@ -290,6 +288,7 @@ contract Marketplace is
     ) internal pure {
         uint256 orders_n = parameters.length;
         uint256 offerers_n = offerers.length;
+        address receiver = parameters[0].receiver;
         require(orders_n >= offerers_n, "Invalid number of sellers");
         /* 
             Go through orders and check
@@ -297,6 +296,8 @@ contract Marketplace is
          */
         for(uint256 i = 0; i < orders_n; i++) {
             BatchOrderParameters memory order = parameters[i];
+            require(order.receiver == receiver, 
+                "Batch orders are restricted to a single receiver");
             require(order.offererIndex < offerers_n, "Invalid offerer index");
             require(order.offerer == offerers[order.offererIndex], 
                 "Offerers array mismath");
@@ -316,6 +317,7 @@ contract Marketplace is
         // validate signer
         require(orderSigner == parameters.offerer, "Offerer address must be the signer");
         require(msg.sender != parameters.offerer, "Signer cannot fulfill their own order");
+        require(parameters.receiver != parameters.offerer, "Offerer cannot be receiver");
         require(parameters.tokenType == OfferTokenType.ERC721 || 
             parameters.tokenType == OfferTokenType.ERC1155, 
             "Unsupported offer token type"
@@ -439,6 +441,7 @@ contract Marketplace is
         // removing offererIndex
         singleOrder = OrderParameters({
             offerer: order.offerer,
+            receiver: order.receiver,
             offerItem: order.offerItem,
             royalty: order.royalty,
             pendingAmountsData: order.pendingAmountsData,

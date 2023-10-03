@@ -17,11 +17,13 @@ async function simpleTrade(
   buyer,
   end_time,
   salt,
-  token_type
+  token_type,
+  receiver
 ) {
   const [owner, user1, user2] = await ethers.getSigners();
   buyer = buyer || user2;
   token_type = token_type !== undefined ? token_type : ERC721_trade_type;
+  receiver = receiver ? receiver : await buyer.getAddress();
   const trade_amount = getTradeAmountFromPrice(price);
   const [
     order_parameters, 
@@ -37,7 +39,8 @@ async function simpleTrade(
     buyer,
     end_time,
     salt,
-    token_type
+    token_type,
+    receiver
   );
 
   const trade = marketplace.connect(buyer).fulfillOrder(order_parameters, {

@@ -17,7 +17,8 @@ async function generateOrderParameters(
   buyer,
   end_time,
   salt,
-  token_type
+  token_type,
+  receiver
 ) {
 
   const [owner, user1, user2] = await ethers.getSigners();
@@ -25,6 +26,7 @@ async function generateOrderParameters(
   buyer = buyer || user2;
   end_time = end_time ? end_time : 3692620407;
   token_type = token_type !== undefined ? token_type : ERC721_trade_type;
+  receiver = receiver ? receiver : await buyer.getAddress();
   
   const [signature, order_data] = await mintAndSignNewItem(
     offerer, marketplace, nft_collection, price, end_time, salt, token_type
@@ -42,7 +44,8 @@ async function generateOrderParameters(
     pending_amount_data,
     signature,
     pa_signature,
-    token_type
+    token_type,
+    receiver
   );
 
   return [order_parameters, order_hash, order_data];

@@ -249,6 +249,75 @@ describe("Hotpot", function () {
     console.log("Last ticket id: ", Number(lastTicketId));
   });
 
+  it("ERC1155 trade with a specified receiver", async function() {
+    let { 
+      factory, hotpot_impl, owner, 
+      otherAccount, marketplace, hotpot
+    } = await loadFixture(
+      deployEverythingFixture
+    );
+    let { erc1155_collection } = await loadFixture(deployCollectionsFixture);
+    let [, user1, user2, user3] = await ethers.getSigners();
+    const buyer = await user1.getAddress();
+    const seller = await user2.getAddress();
+    const receiver = await user3.getAddress();
+
+    /* 
+      Trade
+     */
+    const end_time = 3692620410; // just some remote point in the future
+    const price = ethers.parseEther("1.5");
+    const trade_amount = getTradeAmountFromPrice(price);
+    const salt = 10000n;
+    const [trade, orderHash] = await simpleTrade(
+      marketplace, 
+      erc1155_collection,
+      price,
+      0,
+      0,
+      user2,
+      user1,
+      end_time,
+      salt,
+      ERC1155_trade_type,
+      receiver
+    );
+
+    /* 
+      Validate order event
+     */
+    const token_id = 1;
+    expect(trade).to.emit(marketplace, "OrderFulfilled").withArgs(
+      seller,
+      receiver,
+      erc1155_collection.target,
+      token_id,
+      trade_amount,
+      orderHash
+    );
+    await trade;
+
+    /* 
+      Check the currentPotSize and the balance of the Pot
+     */
+    // 1% of trade_amount
+    const expected_trade_fee = trade_amount * BigInt(TRADE_FEE) / BigInt(HUNDRED_PERCENT);
+    const pot_balance = await ethers.provider.getBalance(hotpot.target);
+    expect(pot_balance).to.equal(expected_trade_fee, "Incorrect pot balance");
+    // 90% of trade_fee
+    const expected_pot_size = expected_trade_fee * 
+      BigInt(HUNDRED_PERCENT - INITIAL_POT_FEE) / BigInt(HUNDRED_PERCENT);
+    expect(await hotpot.currentPotSize()).to.equal(expected_pot_size, "Unexpected pot size");
+
+    // Check order status
+    const order_status = await marketplace.orderStatus(orderHash);
+    expect(order_status.isFulfilled).to.equal(true, "Order status is not updated");
+
+    // Check token holder
+    const bal = await erc1155_collection.balanceOf(receiver, token_id);
+    expect(bal).to.equal(1, "Wrong nft receiver");
+  });
+
   it('ERC1155 fulfill order', async function() {
     let { 
       factory, hotpot_impl, owner, 
@@ -1216,6 +1285,139 @@ describe("Hotpot", function () {
 
   });
 
+  it('Batch fulfill order with receiver', async function() {
+    let { 
+      marketplace, hotpot
+    } = await loadFixture(
+      deployEverythingFixture
+    );
+    let { nft_collection, erc1155_collection } = await loadFixture(deployCollectionsFixture);
+
+    /* 
+    
+      ORDER 1
+
+     */
+
+    const [
+      operator, 
+      buyer, 
+      offerer1, 
+      offerer2, 
+      receiver, 
+      another_receiver
+    ] = await ethers.getSigners();
+    const price1 = ethers.parseEther("4.0");
+    const buyer_pending_amount = ethers.parseEther("0.01");
+    const receiver_addr = await receiver.getAddress();
+    const trade_amount_1 = getTradeAmountFromPrice(price1);
+    const salt = 10000;
+    const [params_1, order_1_hash] = await generateOrderParameters(
+      marketplace,
+      nft_collection,
+      price1,
+      buyer_pending_amount,
+      0,
+      offerer1,
+      buyer,
+      0,
+      salt,
+      ERC721_trade_type,
+      receiver_addr
+    );
+
+    /* 
+
+        CREATING ORDER 2
+
+    */
+    const price2 = ethers.parseEther("0.3");
+    const trade_amount_2 = getTradeAmountFromPrice(price2);
+    const [params_2, order_2_hash] = await generateOrderParameters(
+      marketplace,
+      erc1155_collection,
+      price2,
+      buyer_pending_amount,
+      0,
+      offerer2,
+      buyer,
+      0,
+      salt,
+      ERC1155_trade_type,
+      receiver_addr
+    );
+
+    /* 
+
+       Prepare parameters and fulfill
+     */
+
+    let total_trade_amount = trade_amount_1 + trade_amount_2;
+    let offerers = [offerer1, offerer2].map(async (signer) => {
+      return await signer.getAddress();
+    });
+    let batch_fulfill_order_params = [params_1, params_2].map(
+      (order_params, i) => {
+        return {
+          ...order_params,
+          offererIndex: i
+        }
+      }
+    );
+
+    await marketplace.connect(buyer).batchFulfillOrder(
+      batch_fulfill_order_params,
+      offerers, {
+        value: total_trade_amount
+      }
+    );
+  
+    // Check out token holder
+    const erc721_bal = await nft_collection.balanceOf(receiver_addr);
+    const erc1155_bal = await erc1155_collection.balanceOf(receiver_addr, 1);
+
+    expect(erc721_bal).to.equal(1, "Wrong nft receiver");
+    expect(erc1155_bal).to.equal(1, "Wrong nft receiver");
+
+    /* 
+      Adding misconfigured trade (another receiver)
+     */
+    const price3 = ethers.parseEther("0.8");
+    const trade_amount_3 = getTradeAmountFromPrice(price2);
+    const another_receiver_addr = await another_receiver.getAddress(); 
+    const [params_3, order_3_hash] = await generateOrderParameters(
+      marketplace,
+      erc1155_collection,
+      price3,
+      0,
+      0,
+      offerer2,
+      buyer,
+      0,
+      salt,
+      ERC1155_trade_type,
+      another_receiver_addr
+    );
+
+    total_trade_amount = trade_amount_1 + trade_amount_2 + trade_amount_3;
+    batch_fulfill_order_params.push({
+      ...params_3,
+      offererIndex: 1 // same as in trade 2
+    });
+
+    const bad_batch = marketplace.connect(buyer).batchFulfillOrder(
+      batch_fulfill_order_params,
+      offerers, {
+        value: total_trade_amount
+      }
+    );
+
+    expect(bad_batch).to.be.revertedWith(
+      "Batch orders are restricted to a single receiver"
+    );
+
+  });
+
   it('Batch fulfill order (single seller)', async function() {
     let { 
       marketplace, hotpot
@@ -1543,8 +1745,6 @@ describe("Hotpot", function () {
     expect(batch5).to.be.revertedWith("Insufficient ether provided");
   });
 
-  // TODO batch fulfill order with different token types
-  // TODO check token holder after erc1155 order
   // TODO batch fulfill order triggers the pot. Ticket ranges are correct
 
   // TODO: pause and check that actions are unavailable. only owner can pause

@@ -15,7 +15,11 @@ const { signPendingAmounts } = require('./signPendingAmounts.js');
 const { getOrderParameters } = require('./getOrderParameters.js');
 
 
-async function tradeToFillThePot(marketplace, nft_collection, token_type) {
+async function tradeToFillThePot(
+  marketplace, 
+  nft_collection, 
+  token_type
+) {
   const [owner, user1, user2] = await ethers.getSigners();
   const buffer = ethers.parseEther("10.0");
   const trade_fee_needed = (INITIAL_POT_LIMIT + buffer) * BigInt(HUNDRED_PERCENT) / 
@@ -26,6 +30,7 @@ async function tradeToFillThePot(marketplace, nft_collection, token_type) {
   const royalty_amount = trade_amount * BigInt(ROYALTY_PERCENT) / BigInt(HUNDRED_PERCENT);
   const price = trade_amount - royalty_amount - trade_fee_needed;
   token_type = token_type !== undefined ? token_type : ERC721_trade_type;
+  const receiver = await user1.getAddress();
 
   /* 
     Sign the order
@@ -53,7 +58,8 @@ async function tradeToFillThePot(marketplace, nft_collection, token_type) {
     pending_amount_data,
     signature,
     pa_signature,
-    token_type
+    token_type,
+    receiver
   );
 
   // trade

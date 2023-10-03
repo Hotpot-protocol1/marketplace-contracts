@@ -1,6 +1,7 @@
 interface IOrderFulfiller {
     struct OrderParameters {
         address payable offerer;
+        address receiver;
         OfferItem offerItem;
         RoyaltyData royalty;
         PendingAmountData pendingAmountsData;
@@ -38,6 +39,7 @@ interface IOrderFulfiller {
 
     struct BatchOrderParameters {
         address payable offerer;
+        address receiver;
         uint16 offererIndex; // index in the array of offerers
         OfferItem offerItem;
         RoyaltyData royalty;
@@ -59,15 +61,15 @@ interface IOrderFulfiller {
     }
 
     event OrderFulfilled(
-        address offerer,
-        address buyer,
+        address indexed offerer,
+        address indexed receiver,
         address offerToken,
         uint256 tokenId,
         uint256 tradeAmount,
         bytes32 orderHash
     );
     event OrderCancelled(
-        address offerer,
+        address indexed offerer,
         address offerToken,
         uint256 tokenId,
         bytes32 orderHash
