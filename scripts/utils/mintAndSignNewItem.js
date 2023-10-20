@@ -11,10 +11,18 @@ async function mintAndSignNewItem(
   price,
   end_time,
   salt,
-  token_type
+  token_type,
+  token_amount
 ) {
   token_type = token_type !== undefined ? token_type : ERC721_trade_type;
-  await nft_collection.mint(lister);
+  token_amount = token_amount || 1;
+
+  if (token_type == ERC721_trade_type) {
+    await nft_collection.mint(lister);
+  }
+  else if(token_type == ERC1155_trade_type) {
+    await nft_collection.mint(lister, token_amount);
+  }
   const token_id = await nft_collection.lastTokenId();
 
   // Approve
@@ -38,6 +46,7 @@ async function mintAndSignNewItem(
       offerTokenId: token_id,
       offerAmount: price,
       endTime: end_time, 
+      amount: token_amount
 	  }, 
     royalty: {
       royaltyPercent: ROYALTY_PERCENT, 

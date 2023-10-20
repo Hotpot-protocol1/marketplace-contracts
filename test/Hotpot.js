@@ -269,6 +269,7 @@ describe("Hotpot", function () {
     const price = ethers.parseEther("1.5");
     const trade_amount = getTradeAmountFromPrice(price);
     const salt = 10000n;
+    const token_amount = 6;
     const [trade, orderHash] = await simpleTrade(
       marketplace, 
       erc1155_collection,
@@ -280,7 +281,8 @@ describe("Hotpot", function () {
       end_time,
       salt,
       ERC1155_trade_type,
-      receiver
+      receiver,
+      token_amount
     );
 
     /* 
@@ -292,6 +294,7 @@ describe("Hotpot", function () {
       receiver,
       erc1155_collection.target,
       token_id,
+      token_amount,
       trade_amount,
       orderHash
     );
@@ -315,7 +318,7 @@ describe("Hotpot", function () {
 
     // Check token holder
     const bal = await erc1155_collection.balanceOf(receiver, token_id);
-    expect(bal).to.equal(1, "Wrong nft receiver");
+    expect(bal).to.equal(token_amount, "Wrong nft receiver");
   });
 
   it('ERC1155 fulfill order', async function() {
@@ -334,6 +337,7 @@ describe("Hotpot", function () {
     const end_time = 3692620410; // just some remote point in the future
     const price = ethers.parseEther("0.8");
     const token_type = ERC1155_trade_type;
+    const token_amount = 2;
     const [trade, orderHash] = await simpleTrade(
       marketplace, 
       erc1155_collection,
@@ -344,7 +348,9 @@ describe("Hotpot", function () {
       user1,
       end_time,
       undefined,
-      token_type
+      token_type,
+      undefined,
+      token_amount
     );
 
     await trade;
@@ -353,7 +359,7 @@ describe("Hotpot", function () {
     const buyer = await user1.getAddress();
     const token_id = 1;
     const tokens = await erc1155_collection.balanceOf(buyer, token_id);
-    expect(tokens).to.equal(1, "Token is not transferred to buyer");
+    expect(tokens).to.equal(token_amount, "Token is not transferred to buyer");
     // Check order status
     const order_status = await marketplace.orderStatus(orderHash);
     expect(order_status.isFulfilled).to.equal(true, "Order status is not updated");

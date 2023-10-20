@@ -4,6 +4,7 @@ const listingTypes = {
     { name: 'offerTokenId', type: 'uint256' },
     { name: 'offerAmount', type: 'uint256' },
     { name: 'endTime', type: 'uint256' },
+    { name: 'amount', type: 'uint256' },
   ],
   RoyaltyData: [
     { name: 'royaltyPercent', type: 'uint256' },

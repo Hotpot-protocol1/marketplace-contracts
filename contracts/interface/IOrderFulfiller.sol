@@ -24,6 +24,7 @@ interface IOrderFulfiller {
         uint256 offerTokenId;
         uint256 offerAmount; // the amount of ether for the offerer
         uint256 endTime; // offer expiration timestamp
+        uint256 amount; // amount of items (erc1155)
     }
 
     struct RoyaltyData {
@@ -65,6 +66,7 @@ interface IOrderFulfiller {
         address indexed receiver,
         address offerToken,
         uint256 tokenId,
+        uint256 tokenAmount,
         uint256 tradeAmount,
         bytes32 orderHash
     );

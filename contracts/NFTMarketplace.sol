@@ -31,7 +31,7 @@ contract Marketplace is
      */
     bytes32 public DOMAIN_SEPARATOR;
     bytes32 constant OFFER_ITEM_TYPEHASH = keccak256(
-        "OfferItem(address offerToken,uint256 offerTokenId,uint256 offerAmount,uint256 endTime)"
+        "OfferItem(address offerToken,uint256 offerTokenId,uint256 offerAmount,uint256 endTime,uint256 amount)"
     ); 
     bytes32 constant ROYALTY_DATA_TYPEHASH = keccak256(
         "RoyaltyData(uint256 royaltyPercent,address royaltyRecipient)"
@@ -41,7 +41,7 @@ contract Marketplace is
     ); 
     // Order typehash - this is a structured data, that user signs when listing
     bytes32 constant ORDER_TYPEHASH = keccak256(
-        "Order(address offerer,OfferItem offerItem,RoyaltyData royalty,uint256 salt)OfferItem(address offerToken,uint256 offerTokenId,uint256 offerAmount,uint256 endTime)RoyaltyData(uint256 royaltyPercent,address royaltyRecipient)"
+        "Order(address offerer,OfferItem offerItem,RoyaltyData royalty,uint256 salt)OfferItem(address offerToken,uint256 offerTokenId,uint256 offerAmount,uint256 endTime,uint256 amount)RoyaltyData(uint256 royaltyPercent,address royaltyRecipient)"
     );
 
     /* 
@@ -258,7 +258,7 @@ contract Marketplace is
             else {
                 bytes memory data = "";
                 IERC1155(offerItem.offerToken).safeTransferFrom(
-                    offerer, receiver, offerItem.offerTokenId, 1, data
+                    offerer, receiver, offerItem.offerTokenId, offerItem.amount, data
                 );
             }
             
@@ -273,6 +273,7 @@ contract Marketplace is
             receiver,
             offerItem.offerToken,
             offerItem.offerTokenId,
+            offerItem.amount,
             tradeAmount,
             _orderHash
         );
@@ -301,9 +302,6 @@ contract Marketplace is
             require(order.offererIndex < offerers_n, "Invalid offerer index");
             require(order.offerer == offerers[order.offererIndex], 
                 "Offerers array mismath");
-            require(order.tokenType == OfferTokenType.ERC721 || 
-                order.tokenType == OfferTokenType.ERC1155,
-                "Unsupported token type");
         }
     }
 
@@ -322,6 +320,12 @@ contract Marketplace is
             parameters.tokenType == OfferTokenType.ERC1155, 
             "Unsupported offer token type"
         );
+        if (parameters.tokenType == OfferTokenType.ERC721) {
+            require(parameters.offerItem.amount == 1, "Invalid token amount");
+        }
+        else {
+            require(parameters.offerItem.amount > 0, "Invalid token amount");
+        }
     }
 
     function _validatePendingAmountData(
@@ -376,7 +380,8 @@ contract Marketplace is
             offerItem.offerToken,
             offerItem.offerTokenId,
             offerItem.offerAmount,
-            offerItem.endTime 
+            offerItem.endTime,
+            offerItem.amount
         ));
     }
 

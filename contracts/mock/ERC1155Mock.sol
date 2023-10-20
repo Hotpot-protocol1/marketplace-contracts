@@ -8,9 +8,10 @@ contract ERC1155Mock is ERC1155 {
 
     constructor() ERC1155("www") {}
 
-    function mint(address to) external {
+    function mint(address to, uint256 amount) external {
+        require(amount > 0, "Amount must not be zero");
         lastTokenId++;
         bytes memory data = "";
-        _mint(to, lastTokenId, 1, data);
+        _mint(to, lastTokenId, amount, data);
     }
 }
