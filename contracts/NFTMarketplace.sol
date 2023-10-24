@@ -110,6 +110,10 @@ contract Marketplace is
         uint256 orders_n = parameters.length;
         address receiver = parameters[0].receiver;
         _validateBatchFulfillOrderParameters(parameters, offerers);
+
+        if (receiver == address(0)) {
+            receiver = msg.sender;
+        }
         
         /* 
             Fulfilling orders
@@ -143,7 +147,7 @@ contract Marketplace is
             );
 
             // validating and fulfilling the order
-            _fulfillOrder(order, order.receiver, royaltyAmount, tradeAmount);
+            _fulfillOrder(order, receiver, royaltyAmount, tradeAmount);
         }
 
         require(msg.value >= tradeAmountTotal, "Insufficient ether provided");
