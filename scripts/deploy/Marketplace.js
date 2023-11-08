@@ -26,12 +26,13 @@ async function deployMarketplace(operator_address) {
   return marketplace;
 }
 
-async function deployMarketplaceImplementation() {
+async function deployMarketplaceImplementation(deployer) {
   const marketplace = await ethers.deployContract("Marketplace");
   await marketplace.waitForDeployment();
   return marketplace;
 }
 
 module.exports = {
-    deployMarketplace
+    deployMarketplace,
+    deployMarketplaceImplementation
 }

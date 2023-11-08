@@ -3,6 +3,7 @@ const { listingTypes } = require('./scripts/utils/EIP712_types');
 require('@nomiclabs/hardhat-ethers');
 require("@nomicfoundation/hardhat-chai-matchers");
 require("hardhat-gas-reporter");
+require("@nomicfoundation/hardhat-verify");
 require('dotenv').config();
 require('hardhat-contract-sizer');
 
@@ -164,6 +165,14 @@ module.exports = {
         mnemonic: MNEMONIC,
         count: 2,
       }
+    },
+    mainnet: {
+      url: INFURA_MAINNET_API,
+      chainId: 1,
+      accounts: {
+        mnemonic: MNEMONIC,
+        count: 2
+      }
     }
   },
 
@@ -177,5 +186,9 @@ module.exports = {
     disambiguatePaths: false,
     runOnCompile: true,
     strict: true,
+  },
+
+  etherscan: {
+    apiKey: process.env.ETHERSCAN_API_KEY
   }
 };

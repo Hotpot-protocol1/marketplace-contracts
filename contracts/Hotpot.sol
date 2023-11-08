@@ -276,7 +276,7 @@ contract Hotpot is
     function setTradeFee(uint16 _newTradeFee) external onlyMarketplace {
         tradeFee = _newTradeFee;
     }
-
+    
     function setChainlinkGasLimit(
         uint32 _callbackGasLimit
     ) external onlyOwner {
