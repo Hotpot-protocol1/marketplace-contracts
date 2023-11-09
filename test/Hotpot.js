@@ -1751,6 +1751,8 @@ describe("Hotpot", function () {
     expect(batch5).to.be.revertedWith("Insufficient ether provided");
   });
 
+  // TODO batch orders with zero address receiver
+  // TODO batch orders with different receivers
   // TODO batch fulfill order triggers the pot. Ticket ranges are correct
 
   // TODO: pause and check that actions are unavailable. only owner can pause

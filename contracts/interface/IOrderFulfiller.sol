@@ -4,10 +4,8 @@ interface IOrderFulfiller {
         address receiver;
         OfferItem offerItem;
         RoyaltyData royalty;
-        PendingAmountData pendingAmountsData;
         uint256 salt;
         bytes orderSignature;
-        bytes pendingAmountsSignature;
         OfferTokenType tokenType;
     }
 
@@ -30,25 +28,6 @@ interface IOrderFulfiller {
     struct RoyaltyData {
         uint256 royaltyPercent;
         address payable royaltyRecipient;
-    }
-
-    struct PendingAmountData {
-        uint256 offererPendingAmount;
-        uint256 buyerPendingAmount;
-        bytes32 orderHash;
-    }
-
-    struct BatchOrderParameters {
-        address payable offerer;
-        address receiver;
-        uint16 offererIndex; // index in the array of offerers
-        OfferItem offerItem;
-        RoyaltyData royalty;
-        PendingAmountData pendingAmountsData;
-        uint256 salt;
-        bytes orderSignature;
-        bytes pendingAmountsSignature;
-        OfferTokenType tokenType;
     }
 
     struct OrderStatus {
@@ -80,7 +59,6 @@ interface IOrderFulfiller {
     function fulfillOrder(OrderParameters memory parameters) external payable;
 
     function batchFulfillOrder(
-        BatchOrderParameters[] memory parameters,
-        address[] memory offerers
+        OrderParameters[] memory parameters
     ) external payable;
 }

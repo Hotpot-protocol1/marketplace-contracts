@@ -70,9 +70,10 @@ contract Marketplace is
         payable
         nonReentrant 
     {
+        address receiver = parameters.receiver == address(0) ? 
+                msg.sender : parameters.receiver;
         OfferItem memory offerItem = parameters.offerItem;
         RoyaltyData memory royalty = parameters.royalty;
-        PendingAmountData memory pendingAmounts = parameters.pendingAmountsData;
         uint256 tradeAmount = _calculateTradeAmount(
             offerItem.offerAmount, 
             royalty.royaltyPercent
@@ -84,7 +85,7 @@ contract Marketplace is
         require(msg.value >= tradeAmount, "Insufficient ether provided");
 
         // validating and fulfilling the order
-        _fulfillOrder(parameters, parameters.receiver, royaltyAmount, tradeAmount);
+        _fulfillOrder(parameters, royaltyAmount, tradeAmount);
 
         /* 
             Execute Hotpot trade to generate tickets
@@ -93,27 +94,18 @@ contract Marketplace is
         if (_raffleContract != address(0)) {
             IHotpot(_raffleContract).executeTrade{ value: hotpotFeeAmount }(
                 tradeAmount,
-                parameters.receiver,
-                parameters.offerer,
-                pendingAmounts.buyerPendingAmount,
-                pendingAmounts.offererPendingAmount
+                receiver,
+                parameters.offerer
             );
         }
     }
 
     function batchFulfillOrder(
-        BatchOrderParameters[] memory parameters,
-        address[] memory offerers
+        OrderParameters[] memory parameters
     )
         external payable nonReentrant
     {
         uint256 orders_n = parameters.length;
-        address receiver = parameters[0].receiver;
-        _validateBatchFulfillOrderParameters(parameters, offerers);
-
-        if (receiver == address(0)) {
-            receiver = msg.sender;
-        }
         
         /* 
             Fulfilling orders
@@ -124,11 +116,10 @@ contract Marketplace is
             new IHotpot.BatchTradeParams[](orders_n);
 
         for(uint256 i = 0; i < orders_n; i++) {
-            OrderParameters memory order = _convertToSingleOrder(
-                parameters[i]
-            );
+            OrderParameters memory order = parameters[i];
             OfferItem memory offerItem = order.offerItem;
             RoyaltyData memory royalty = order.royalty;
+
             uint256 tradeAmount = _calculateTradeAmount(
                 offerItem.offerAmount,
                 royalty.royaltyPercent
@@ -147,7 +138,7 @@ contract Marketplace is
             );
 
             // validating and fulfilling the order
-            _fulfillOrder(order, receiver, royaltyAmount, tradeAmount);
+            _fulfillOrder(order, royaltyAmount, tradeAmount);
         }
 
         require(msg.value >= tradeAmountTotal, "Insufficient ether provided");
@@ -158,9 +149,7 @@ contract Marketplace is
         address _raffleContract = raffleContract;
         if (_raffleContract != address(0)) {
             IHotpot(_raffleContract).batchExecuteTrade{ value: raffleFeeTotal }(
-                receiver,
-                batchTradeParams,
-                offerers
+                batchTradeParams
             );
         }
     }
@@ -217,14 +206,15 @@ contract Marketplace is
      */
     function _fulfillOrder(
         OrderParameters memory parameters,
-        address receiver,
         uint256 royaltyAmount,
         uint256 tradeAmount
     ) internal {
+        address receiver = parameters.receiver == address(0) ? 
+            msg.sender : parameters.receiver;
         OfferItem memory offerItem = parameters.offerItem;
         RoyaltyData memory royalty = parameters.royalty;
         address payable offerer = parameters.offerer;
-        //check if offer has expired
+
         require(block.timestamp <= parameters.offerItem.endTime, 
             "Offer has expired");
 
@@ -233,11 +223,6 @@ contract Marketplace is
             agains the specified signature
          */
         bytes32 _orderHash = _validateOrderData(parameters);
-
-        // Doing the same with pending amount data
-        _validatePendingAmountData(
-            parameters.pendingAmountsData, parameters.pendingAmountsSignature
-        );
 
         // Validate and update order status
         OrderStatus storage _orderStatus = orderStatus[_orderHash];
@@ -283,43 +268,20 @@ contract Marketplace is
         );
     }
 
-    /* 
-        Validates that parameters are sorted by sellers
-        and that they match an array of offerers
-     */
-    function _validateBatchFulfillOrderParameters(
-        BatchOrderParameters[] memory parameters,
-        address[] memory offerers
-    ) internal pure {
-        uint256 orders_n = parameters.length;
-        uint256 offerers_n = offerers.length;
-        address receiver = parameters[0].receiver;
-        require(orders_n >= offerers_n, "Invalid number of sellers");
-        /* 
-            Go through orders and check
-            that they match offerers from params
-         */
-        for(uint256 i = 0; i < orders_n; i++) {
-            BatchOrderParameters memory order = parameters[i];
-            require(order.receiver == receiver, 
-                "Batch orders are restricted to a single receiver");
-            require(order.offererIndex < offerers_n, "Invalid offerer index");
-            require(order.offerer == offerers[order.offererIndex], 
-                "Offerers array mismath");
-        }
-    }
-
     function _validateOrderData(OrderParameters memory parameters) 
         internal
         view
         returns(bytes32 orderHash)
     {
+        address receiver = parameters.receiver == address(0) ? 
+            msg.sender : parameters.receiver;
+
         orderHash = _hashTypedDataV4(_calculateOrderHashStruct(parameters));
         address orderSigner = ECDSAUpgradeable.recover(orderHash, parameters.orderSignature);
         // validate signer
         require(orderSigner == parameters.offerer, "Offerer address must be the signer");
         require(msg.sender != parameters.offerer, "Signer cannot fulfill their own order");
-        require(parameters.receiver != parameters.offerer, "Offerer cannot be receiver");
+        require(receiver != parameters.offerer, "Offerer cannot be receiver");
         require(parameters.tokenType == OfferTokenType.ERC721 || 
             parameters.tokenType == OfferTokenType.ERC1155, 
             "Unsupported offer token type"
@@ -330,19 +292,6 @@ contract Marketplace is
         else {
             require(parameters.offerItem.amount > 0, "Invalid token amount");
         }
-    }
-
-    function _validatePendingAmountData(
-        PendingAmountData memory pendingAmounts, bytes memory signature
-    )
-        internal
-        view
-    {
-        bytes32 pendingAmountsHashStruct = _calculatePendingAmountHashStruct(pendingAmounts);
-        bytes32 _hash = _hashTypedDataV4(pendingAmountsHashStruct);
-        address signer = ECDSAUpgradeable.recover(_hash, signature);
-        // validate signer
-        require(signer == operator, "Operator must be the pending amounts data signer");
     }
 
     function _calculateOrderHashStruct(OrderParameters memory parameters) 
@@ -401,19 +350,6 @@ contract Marketplace is
         ));
     }
 
-    function _calculatePendingAmountHashStruct(PendingAmountData memory pendingAmounts) 
-        internal
-        pure
-        returns(bytes32 _pendingAmountsHash) 
-    {
-        return keccak256(abi.encode(
-            PENDING_AMOUNT_DATA_TYPEHASH,
-            pendingAmounts.offererPendingAmount,
-            pendingAmounts.buyerPendingAmount,
-            pendingAmounts.orderHash
-        ));
-    }
-
     function _validateOrderStatus(OrderStatus storage _orderStatus) 
         internal
         view
@@ -444,32 +380,17 @@ contract Marketplace is
         return tradeAmount * royaltyPercent / HUNDRED_PERCENT;
     }
 
-    function _convertToSingleOrder(
-        BatchOrderParameters memory order
-    ) internal pure returns (OrderParameters memory singleOrder) {
-        // removing offererIndex
-        singleOrder = OrderParameters({
-            offerer: order.offerer,
-            receiver: order.receiver,
-            offerItem: order.offerItem,
-            royalty: order.royalty,
-            pendingAmountsData: order.pendingAmountsData,
-            salt: order.salt,
-            orderSignature: order.orderSignature,
-            pendingAmountsSignature: order.pendingAmountsSignature,
-            tokenType: order.tokenType
-        });
-    }
-
     function _convertToBatchTradeParams(
-        BatchOrderParameters memory order,
+        OrderParameters memory order,
         uint256 tradeAmount
-    ) internal pure returns (IHotpot.BatchTradeParams memory params) {
+    ) internal view returns (IHotpot.BatchTradeParams memory params) {
+        address receiver = order.receiver == address(0) ? 
+            msg.sender : order.receiver;
+
         params = IHotpot.BatchTradeParams({
-            _amountInWei: tradeAmount, 
-            _sellerIndex: order.offererIndex,
-            _buyerPendingAmount: order.pendingAmountsData.buyerPendingAmount,
-            _sellerPendingAmount: order.pendingAmountsData.offererPendingAmount
+            _amountInWei: tradeAmount,
+            offerer: order.offerer,
+            receiver: receiver
         });
     }
 }

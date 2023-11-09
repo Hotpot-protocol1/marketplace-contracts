@@ -11,6 +11,9 @@ contract Hotpot is
     PausableUpgradeable, 
     VRFV2WrapperConsumerBase
 {
+    /* 
+        Raffle params and mappings
+     */
     uint256 public potLimit;
     uint256 public currentPotSize;
     uint256 public raffleTicketCost;
@@ -24,16 +27,23 @@ contract Hotpot is
     uint16 public numberOfWinners;
     uint16 public fee; // 100 = 1%, 10000 = 100%;
     uint16 public tradeFee; // the percent of a trade amount that goes to the pot as pure ether
+    /* 
+        Ticket data
+     */
     uint32 public lastRaffleTicketId;
     uint32 public potTicketIdStart; // start of current pot ticket range
     uint32 public potTicketIdEnd; // end of current pot ticket range
     uint32 public nextPotTicketIdStart;
     uint16 public currentPotId;
+    /* 
+        Roles
+     */
     address public marketplace;
     address public operator;
     address public airdrop; // airdrop contract
     uint32 private callbackGasLimit;
     uint256 constant MULTIPLIER = 10000;
+    mapping(address => uint256) public pendingAmounts;
 
     modifier onlyMarketplace() {
         require(msg.sender == marketplace, "Caller is not the marketplace contract");
@@ -78,9 +88,7 @@ contract Hotpot is
     function executeTrade(
         uint256 _amountInWei, 
         address _buyer, 
-        address _seller, 
-        uint256 _buyerPendingAmount, 
-        uint256 _sellerPendingAmount
+        address _seller 
     ) external payable onlyMarketplace whenNotPaused {
 		require(msg.value > 0, "No trade fee transferred (msg.value)");
         uint256 potValueDelta = msg.value * (MULTIPLIER - fee) / MULTIPLIER;
@@ -93,8 +101,6 @@ contract Hotpot is
             _amountInWei,
             _buyer,
             _seller,
-            _buyerPendingAmount,
-            _sellerPendingAmount,
             _raffleTicketCost
         );
 
@@ -115,9 +121,7 @@ contract Hotpot is
     }
 
     function batchExecuteTrade(
-        address buyer,
-        BatchTradeParams[] memory trades,
-        address[] memory sellers 
+        BatchTradeParams[] memory trades
     ) external payable onlyMarketplace whenNotPaused {
         require(msg.value > 0, "No trade fee transferred (msg.value)");
         uint256 potValueDelta = msg.value * (MULTIPLIER - fee) / MULTIPLIER;
@@ -126,40 +130,18 @@ contract Hotpot is
 		uint256 _raffleTicketCost = raffleTicketCost;
         uint32 _lastRaffleTicketIdBefore = lastRaffleTicketId;
         uint256 trades_n = trades.length;
-
-        /* 
-            Pending amounts might change during trades,
-            so we update them locally to pass to the next
-            trade
-         */
-        uint256[] memory sellersPendingAmounts = new uint256[](sellers.length);
-        uint256 buyerPendingAmount = trades[0]._buyerPendingAmount;
-
-        // set initial pending amounts
-        for (uint256 i = 0; i < trades_n; i++) {
-            BatchTradeParams memory trade = trades[i];
-            sellersPendingAmounts[trade._sellerIndex] = trade._sellerPendingAmount;
-        }
         
         /* 
-            Execute trades, 
-            while updating local pending amounts
+            Execute trades
          */
         {
             for(uint256 i = 0; i < trades_n; i++) {
                 BatchTradeParams memory trade = trades[i];
-                uint16 sellerIndex = trade._sellerIndex;
-
-                (
-                    buyerPendingAmount, 
-                    sellersPendingAmounts[sellerIndex]
-                ) = _executeTrade(
-                        trade._amountInWei,
-                        buyer,
-                        sellers[sellerIndex],
-                        buyerPendingAmount,
-                        sellersPendingAmounts[sellerIndex],
-                        _raffleTicketCost
+                _executeTrade(
+                    trade._amountInWei,
+                    trade.receiver,
+                    trade.offerer,
+                    _raffleTicketCost
                 );
             }
         }
@@ -319,30 +301,26 @@ contract Hotpot is
         uint256 _amountInWei, 
         address _buyer, 
         address _seller, 
-        uint256 _buyerPendingAmount, 
-        uint256 _sellerPendingAmount,
         uint256 _raffleTicketCost
-    ) internal returns(
-        uint256 _newBuyerPendingAmount,
-        uint256 _newSellerPendingAmount
-    ) {
+    ) internal {
         require(_buyer != _seller, "Buyer and seller must be different");
+        uint256 _buyerPendingAmount = pendingAmounts[_buyer];
+        uint256 _sellerPendingAmount = pendingAmounts[_seller];
+
         uint32 buyerTickets = uint32((_buyerPendingAmount + _amountInWei) / _raffleTicketCost);
 		uint32 sellerTickets = uint32((_sellerPendingAmount + _amountInWei) / _raffleTicketCost);
-		_newBuyerPendingAmount = (_buyerPendingAmount + _amountInWei) % _raffleTicketCost;
-		_newSellerPendingAmount = (_sellerPendingAmount + _amountInWei) % _raffleTicketCost;
         
-        _generateTickets(_buyer, _seller, buyerTickets, sellerTickets,
-            _newBuyerPendingAmount, _newSellerPendingAmount);
+		pendingAmounts[_buyer] = (_buyerPendingAmount + _amountInWei) % _raffleTicketCost;
+		pendingAmounts[_seller] = (_sellerPendingAmount + _amountInWei) % _raffleTicketCost;
+        
+        _generateTickets(_buyer, _seller, buyerTickets, sellerTickets);
     }
     
     function _generateTickets(
         address _buyer,
         address _seller,
         uint32 buyerTickets, 
-        uint32 sellerTickets,
-        uint256 _newBuyerPendingAmount,
-        uint256 _newSellerPendingAmount
+        uint32 sellerTickets
     ) internal {
         uint32 buyerTicketIdStart;
         uint32 buyerTicketIdEnd;
@@ -352,6 +330,7 @@ contract Hotpot is
         /*
             Assigning newly generated ticket ranges 
         */
+       
         if(buyerTickets > 0) {
             buyerTicketIdStart = lastRaffleTicketId + 1;
             buyerTicketIdEnd = buyerTicketIdStart + buyerTickets - 1; 
@@ -363,6 +342,8 @@ contract Hotpot is
             sellerTicketIdEnd = sellerTicketIdStart + sellerTickets - 1;
         }
         lastRaffleTicketId += buyerTickets + sellerTickets;
+        uint256 buyerPA = pendingAmounts[_buyer];
+        uint256 offererPA = pendingAmounts[_seller];
 
         emit GenerateRaffleTickets(
 			_buyer, 
@@ -371,8 +352,8 @@ contract Hotpot is
 			buyerTicketIdEnd,
             sellerTicketIdStart,
             sellerTicketIdEnd,
-			_newBuyerPendingAmount,
-			_newSellerPendingAmount
+            buyerPA,
+            offererPA
 		);
     }
 
