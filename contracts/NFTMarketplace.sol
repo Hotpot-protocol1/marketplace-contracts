@@ -36,9 +36,6 @@ contract Marketplace is
     bytes32 constant ROYALTY_DATA_TYPEHASH = keccak256(
         "RoyaltyData(uint256 royaltyPercent,address royaltyRecipient)"
     ); 
-    bytes32 constant PENDING_AMOUNT_DATA_TYPEHASH = keccak256(
-        "PendingAmountData(uint256 offererPendingAmount,uint256 buyerPendingAmount,bytes32 orderHash)"
-    ); 
     // Order typehash - this is a structured data, that user signs when listing
     bytes32 constant ORDER_TYPEHASH = keccak256(
         "Order(address offerer,OfferItem offerItem,RoyaltyData royalty,uint256 salt)OfferItem(address offerToken,uint256 offerTokenId,uint256 offerAmount,uint256 endTime,uint256 amount)RoyaltyData(uint256 royaltyPercent,address royaltyRecipient)"

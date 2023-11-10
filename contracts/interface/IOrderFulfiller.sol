@@ -9,7 +9,6 @@ interface IOrderFulfiller {
         OfferTokenType tokenType;
     }
 
-    // Order without pending amounts
     struct PureOrder { 
         address payable offerer;
         OfferItem offerItem;
