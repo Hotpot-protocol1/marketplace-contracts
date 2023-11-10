@@ -3,15 +3,11 @@ const {
   INITIAL_POT_FEE,
   TRADE_FEE,
   HUNDRED_PERCENT,
-  INITIAL_TICKET_COST,
-  INITIAL_NUMBER_OF_WINNERS,
   INITIAL_POT_LIMIT,
   ROYALTY_PERCENT,
   ERC721_trade_type
 } = require("./parameters.js");
 const { mintAndSignNewItem } = require('./mintAndSignNewItem.js');
-const { getOrderHash } = require('./getOrderHash.js');
-const { signPendingAmounts } = require('./signPendingAmounts.js');
 const { getOrderParameters } = require('./getOrderParameters.js');
 
 
@@ -45,19 +41,9 @@ async function tradeToFillThePot(
     token_type
   );
 
-  const orderHash = getOrderHash(order_data, marketplace.target);
-  const [pa_signature, pending_amount_data] = await signPendingAmounts(
-    marketplace,
-    owner, // operator
-    0,
-    0,
-    orderHash
-  );
   const orderParameters = getOrderParameters(
     order_data, 
-    pending_amount_data,
     signature,
-    pa_signature,
     token_type,
     receiver
   );
