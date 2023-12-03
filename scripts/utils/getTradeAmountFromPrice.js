@@ -6,8 +6,8 @@ const {
 
 function getTradeAmountFromPrice(price) {
   return price * BigInt(HUNDRED_PERCENT) / (
-    BigInt(HUNDRED_PERCENT) - 
-    BigInt(TRADE_FEE) - 
+    BigInt(HUNDRED_PERCENT) -
+    BigInt(TRADE_FEE) -
     BigInt(ROYALTY_PERCENT)
   );
 }

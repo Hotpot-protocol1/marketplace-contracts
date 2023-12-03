@@ -4,6 +4,7 @@ import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/Own
 import {PausableUpgradeable} from "@openzeppelin/contracts-upgradeable/security/PausableUpgradeable.sol";
 import {IHotpot} from "./interface/IHotpot.sol";
 import {VRFV2WrapperConsumerBase} from "@chainlink/contracts/src/v0.8/VRFV2WrapperConsumerBase.sol";
+import {IERC721} from "@openzeppelin/contracts/token/ERC721/IERC721.sol";
 
 contract Hotpot is 
     IHotpot, 
@@ -44,6 +45,11 @@ contract Hotpot is
     uint32 private callbackGasLimit;
     uint256 constant MULTIPLIER = 10000;
     mapping(address => uint256) public pendingAmounts;
+    /* 
+        Discounts (boosts)
+     */
+    mapping(address => uint256) public ticketCostPerCollection;
+    address[] public boostedCollections;
 
     modifier onlyMarketplace() {
         require(msg.sender == marketplace, "Caller is not the marketplace contract");
@@ -94,14 +100,16 @@ contract Hotpot is
         uint256 potValueDelta = msg.value * (MULTIPLIER - fee) / MULTIPLIER;
         uint256 _currentPotSize = currentPotSize;
 		uint256 _potLimit = potLimit;
-		uint256 _raffleTicketCost = raffleTicketCost;
         uint32 _lastRaffleTicketIdBefore = lastRaffleTicketId;
+        uint256 _buyerTicketCost = getTicketCostForUser(_buyer);
+        uint256 _sellerTicketCost = getTicketCostForUser(_seller);
 
         _executeTrade(
             _amountInWei,
             _buyer,
             _seller,
-            _raffleTicketCost
+            _buyerTicketCost,
+            _sellerTicketCost
         );
 
         /*
@@ -112,7 +120,9 @@ contract Hotpot is
                 potValueDelta, 
                 _lastRaffleTicketIdBefore,
                 _potLimit,
-                _currentPotSize
+                _currentPotSize,
+                _buyerTicketCost,
+                _sellerTicketCost
             );
         }
 		else {
@@ -141,7 +151,8 @@ contract Hotpot is
                     trade._amountInWei,
                     trade.receiver,
                     trade.offerer,
-                    _raffleTicketCost
+                    getTicketCostForUser(trade.receiver),
+                    getTicketCostForUser(trade.offerer)
                 );
             }
         }
@@ -155,7 +166,9 @@ contract Hotpot is
                 potValueDelta, 
                 _lastRaffleTicketIdBefore,
                 _potLimit,
-                _currentPotSize
+                _currentPotSize,
+                _raffleTicketCost,
+                _raffleTicketCost
             );
         }
 		else {
@@ -291,6 +304,81 @@ contract Hotpot is
     }
 
     /* 
+        ____
+        
+        Boosted collections
+        ___
+     */
+    function setDiscountedTicketCost(
+        address nft,
+        uint256 ticketCost
+    ) external onlyOwner {
+        require(nft != address(0), "Zero address");
+        require(ticketCost > 0, "Zero ticket cost");
+
+        ticketCostPerCollection[nft] = ticketCost;
+        
+        (bool isBoosted,) = isBoostedCollection(nft);
+        
+        if (!isBoosted) {
+            boostedCollections.push(nft);
+        }
+    }
+
+    function removeBoostedCollection(
+        address nft
+    ) external onlyOwner {
+        uint256 len = boostedCollections.length;
+
+        (bool isBoosted, uint256 index) = isBoostedCollection(nft);
+        require(isBoosted, "Collection not found");
+
+        // Deleting the index position
+        for (uint j = index; j < len - 1; j++) {
+            boostedCollections[j] = boostedCollections[j + 1];
+        }
+        boostedCollections.pop();
+
+        ticketCostPerCollection[nft] = 0;
+    }
+
+    function isBoostedCollection(
+        address nft
+    ) public view returns (bool isBoosted, uint256 index) {
+        uint256 len = boostedCollections.length;
+
+        for (uint i = 0; i < len; i++) {
+            if (nft == boostedCollections[i]) {
+                isBoosted = true;
+                index = i;
+                break;
+            }
+        }
+    }
+
+     function getTicketCostForUser(
+        address user
+    ) public view returns(uint256 _minTicketCost) {
+        _minTicketCost = raffleTicketCost;
+        uint256 n = boostedCollections.length;
+
+        for(uint i = 0; i < n; i++) {
+            address nft = boostedCollections[i];
+            bool eligible = IERC721(nft).balanceOf(user) > 0;
+
+            if (!eligible) {
+                continue;
+            }
+
+            uint256 ticketCost = ticketCostPerCollection[nft];
+            if (ticketCost < _minTicketCost) {
+                _minTicketCost = ticketCost;
+            }
+        }
+
+    }
+
+    /* 
 
             ***
             INTERNAL
@@ -301,17 +389,18 @@ contract Hotpot is
         uint256 _amountInWei, 
         address _buyer, 
         address _seller, 
-        uint256 _raffleTicketCost
+        uint256 _buyerRaffleTicketCost,
+        uint256 _sellerRaffleTicketCost
     ) internal {
         require(_buyer != _seller, "Buyer and seller must be different");
         uint256 _buyerPendingAmount = pendingAmounts[_buyer];
         uint256 _sellerPendingAmount = pendingAmounts[_seller];
 
-        uint32 buyerTickets = uint32((_buyerPendingAmount + _amountInWei) / _raffleTicketCost);
-		uint32 sellerTickets = uint32((_sellerPendingAmount + _amountInWei) / _raffleTicketCost);
+        uint32 buyerTickets = uint32((_buyerPendingAmount + _amountInWei) / _buyerRaffleTicketCost);
+		uint32 sellerTickets = uint32((_sellerPendingAmount + _amountInWei) / _sellerRaffleTicketCost);
         
-		pendingAmounts[_buyer] = (_buyerPendingAmount + _amountInWei) % _raffleTicketCost;
-		pendingAmounts[_seller] = (_sellerPendingAmount + _amountInWei) % _raffleTicketCost;
+		pendingAmounts[_buyer] = (_buyerPendingAmount + _amountInWei) % _buyerRaffleTicketCost;
+		pendingAmounts[_seller] = (_sellerPendingAmount + _amountInWei) % _sellerRaffleTicketCost;
         
         _generateTickets(_buyer, _seller, buyerTickets, sellerTickets);
     }
@@ -358,28 +447,34 @@ contract Hotpot is
     }
 
     function _calculateTicketIdEnd(
-        uint32 _lastRaffleTicketIdBefore
+        uint32 _lastRaffleTicketIdBefore,
+        uint256 _buyerTicketCost,
+        uint256 _sellerTicketCost
     ) internal view returns(uint32 _ticketIdEnd) {
-		uint256 _raffleTicketCost = raffleTicketCost;
         uint256 _ethDeltaNeededToFillPot = (potLimit - currentPotSize) * MULTIPLIER / (MULTIPLIER - fee);
         uint256 _tradeAmountNeededToFillPot = _ethDeltaNeededToFillPot * MULTIPLIER / tradeFee;
+
         // First calculate tickets needed to fill the pot
-        uint32 ticketsNeeded = uint32(_tradeAmountNeededToFillPot / _raffleTicketCost) * 2;
+        uint32 ticketsCreated = 
+            uint32(_tradeAmountNeededToFillPot / _buyerTicketCost) + 
+            uint32(_tradeAmountNeededToFillPot / _sellerTicketCost);
         
-        if(_tradeAmountNeededToFillPot % _raffleTicketCost > 0) {
-            ticketsNeeded += 1;
-        }
-        
-        return _lastRaffleTicketIdBefore + ticketsNeeded;
+        return _lastRaffleTicketIdBefore + ticketsCreated;
     }
 
     function _finishRaffle(
         uint256 potValueDelta,
         uint32 _lastRaffleTicketIdBefore,
         uint256 _potLimit,
-        uint256 _currentPotSize
+        uint256 _currentPotSize,
+        uint256 _buyerTicketCost,
+        uint256 _sellerTicketCost
     ) internal {
-        uint32 _potTicketIdEnd = _calculateTicketIdEnd(_lastRaffleTicketIdBefore);
+        uint32 _potTicketIdEnd = _calculateTicketIdEnd(
+            _lastRaffleTicketIdBefore,
+            _buyerTicketCost,
+            _sellerTicketCost
+        );
         potTicketIdEnd = _potTicketIdEnd;
         potTicketIdStart = nextPotTicketIdStart; 
         nextPotTicketIdStart = _potTicketIdEnd + 1; // starting ticket of the next Pot

@@ -34,6 +34,7 @@ const { generateOrderParameters } = require('../scripts/utils/generateOrderParam
 const { calculateTicketsForTrade } = require('../scripts/utils/calculateTicketsForTrade');
 const { getPotDeltaFromPrice, getPotDeltaFromTradeAmount } = require('../scripts/utils/getPotDeltaFromTradeAmount');
 const { AddressZero } = require('@ethersproject/constants');
+const { getRandomFloat } = require('../scripts/utils/utils.js');
 require("dotenv").config();
 
 
@@ -114,6 +115,15 @@ describe("Hotpot", function () {
       otherAccount, marketplace, hotpot,
       V3Aggregator, VRFCoordinator, VRFV2Wrapper, nft_collection
     }
+  }
+
+  async function deployBoostedCollections() {
+    const nft_boosted1 = await ethers.deployContract("BoostedERC721Mock");
+    await nft_boosted1.waitForDeployment();
+
+    const nft_boosted2 = await ethers.deployContract("BoostedERC721Mock");
+    await nft_boosted2.waitForDeployment();
+    return {nft_boosted1, nft_boosted2};
   }
 
   it("should deploy factory", async function () {
@@ -593,7 +603,7 @@ describe("Hotpot", function () {
       / BigInt(HUNDRED_PERCENT - INITIAL_POT_FEE);
     const traded_eth_to_fill_pot = eth_to_fill_pot * BigInt(HUNDRED_PERCENT) / BigInt(TRADE_FEE);
     const expected_tickets_trade_2 = traded_eth_to_fill_pot / BigInt(INITIAL_TICKET_COST) * 2n;
-    const expected_ticket_end = expected_tickets_trade_2 + trade_1_last_ticket_id + 1n; 
+    const expected_ticket_end = expected_tickets_trade_2 + trade_1_last_ticket_id; 
     const current_pot_ticket_end = await hotpot.potTicketIdEnd();
     expect(current_pot_ticket_end).to.equal(expected_ticket_end, "Incorrect pot ticket end id");
     expect(await hotpot.nextPotTicketIdStart()).to.equal(expected_ticket_end + 1n, "Id of the next pot starting ticket is incorrect");
@@ -1701,6 +1711,44 @@ describe("Hotpot", function () {
       }
     );
     expect(batch5).to.be.revertedWith("Insufficient ether provided");
+  });
+
+  it('Trading with ticket discounts', async function() {
+    // TODO make a trade, check the pending amounts and the last ticket id
+
+    const { 
+      marketplace, hotpot
+    } = await loadFixture(deployEverythingFixture);
+    const { nft_boosted1, nft_boosted2 } = await loadFixture(deployBoostedCollections);
+    const [owner, alice, bob, jon_bones_jones] = await ethers.getSigners();
+    const buyer_1 = await bob.getAddress();
+    const buyer_2 = await jon_bones_jones.getAddress();
+    const offerer = await alice.getAddress();
+    
+    /* 
+      Setting discounted ticket prices
+     */
+    const discounted_ticket_price_1 = ethers.parseEther(getRandomFloat(0.05, 0.2).toFixed(5));
+    const discounted_ticket_price_2 = ethers.parseEther(getRandomFloat(0.05, 0.2).toFixed(5));
+    await hotpot.setDiscountedTicketCost(nft_boosted1.target, discounted_ticket_price_1);
+    await hotpot.setDiscountedTicketCost(nft_boosted2.target, discounted_ticket_price_2);
+
+    await nft_boosted1.mint(offerer);
+    await nft_boosted2.mint(buyer_1);
+
+    // ensure discounts are set
+    expect(await hotpot.boostedCollections(0)).to.equal(nft_boosted1.target, 
+      "Boosted collection is not set"
+    );
+    expect(await hotpot.ticketCostPerCollection(nft_boosted1.target)).to.equal(
+      discounted_ticket_price_1,
+      "Discounted price is not set"
+    );
+    expect(await nft_boosted1.balanceOf(offerer)).to.equal(1, "Nft not minted");
+    const ticket_cost_for_buyer1 = await hotpot.getTicketCostForUser(buyer_1);
+    expect(ticket_cost_for_buyer1).to.equal(discounted_ticket_price_2, 
+      "Incorrect ticket price calculations"
+    );
   });
 
   // TODO batch fulfill order triggers the pot. Ticket ranges are correct

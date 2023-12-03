@@ -27,7 +27,7 @@ async function deployMarketplace(operator_address) {
 }
 
 async function deployMarketplaceImplementation(deployer) {
-  const marketplace = await ethers.deployContract("Marketplace");
+  const marketplace = await ethers.deployContract("Marketplace", deployer);
   await marketplace.waitForDeployment();
   return marketplace;
 }

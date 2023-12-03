@@ -173,6 +173,14 @@ module.exports = {
         mnemonic: MNEMONIC,
         count: 2
       }
+    },
+    sepolia: {
+      url: process.env.ALCHEMY_SEPOLIA_API,
+      chainId: 11155111,
+      accounts: {
+        mnemonic: MNEMONIC,
+        count: 2
+      }
     }
   },
 
