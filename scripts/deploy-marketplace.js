@@ -14,6 +14,12 @@ async function main() {
 
   console.log(`Marketplace logic contract deployed at ${marketplace.target}`);
   console.log(`Deployer: ${deployer_addr}`);
+  console.log('Verifying contract...');
+
+  await hre.run("verify:verify", {
+    address: marketplace.target,
+    constructorArguments: [],
+  });
 }
 
 // We recommend this pattern to be able to use async/await everywhere

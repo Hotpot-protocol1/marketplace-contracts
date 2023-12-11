@@ -3,8 +3,8 @@ const {
   TRADE_FEE,
 } = require("../utils/parameters.js");
 
-async function deployMarketplace(operator_address) {
-  const MarketplaceImpl = await deployMarketplaceImplementation();
+async function deployMarketplace(operator_address, deployer) {
+  const MarketplaceImpl = await deployMarketplaceImplementation(deployer);
 
   const initialize_calldata = MarketplaceImpl.interface.encodeFunctionData(
     "initialize", [

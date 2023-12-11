@@ -176,7 +176,7 @@ module.exports = {
       }
     },
     sepolia: {
-      url: process.env.ALCHEMY_SEPOLIA_API,
+      url: process.env.INFURA_SEPOLIA_API,
       chainId: 11155111,
       accounts: {
         mnemonic: MNEMONIC,
@@ -198,6 +198,7 @@ module.exports = {
   },
 
   etherscan: {
-    apiKey: process.env.ETHERSCAN_API_KEY
+    apiKey: process.env.ETHERSCAN_API_KEY,
+    
   }
 };

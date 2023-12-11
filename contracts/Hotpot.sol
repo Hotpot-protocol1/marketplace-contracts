@@ -356,7 +356,7 @@ contract Hotpot is
         }
     }
 
-     function getTicketCostForUser(
+    function getTicketCostForUser(
         address user
     ) public view returns(uint256 _minTicketCost) {
         _minTicketCost = raffleTicketCost;
