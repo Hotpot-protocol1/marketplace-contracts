@@ -1,5 +1,6 @@
 const { deployMarketplaceImplementation } = require('./deploy/Marketplace');
 const hre = require("hardhat");
+const { TRADE_FEE } = require('./utils/parameters');
 
 async function main() {
 
@@ -7,6 +8,10 @@ async function main() {
 
   if (!deployer) {
     throw new Error("Incorrect deployer");
+  }
+  const operator_address = process.env.OPERATOR;
+  if (!operator_address) {
+    throw new Error("Configure operator address");
   }
 
   /*
@@ -17,6 +22,7 @@ async function main() {
 
   console.log(`Marketplace logic contract deployed at ${MarketplaceImpl.target}`);
   console.log('Verifying logic contract...');
+  await new Promise((resolve) => setTimeout(resolve, 30000));
   await hre.run("verify:verify", {
     address: MarketplaceImpl.target,
     constructorArguments: [],
@@ -27,6 +33,7 @@ async function main() {
    */
 
   console.log("Deploying proxy...");
+
   const initialize_calldata = MarketplaceImpl.interface.encodeFunctionData(
     "initialize", [
     TRADE_FEE,
@@ -41,6 +48,7 @@ async function main() {
   console.log("Marketplace proxy deployed at", marketplaceProxy.target);
   console.log("Verifying proxy...");
 
+  await new Promise((resolve) => setTimeout(resolve, 30000));
   await hre.run("verify:verify", {
     address: marketplaceProxy.target,
     constructorArguments: [
@@ -49,6 +57,7 @@ async function main() {
     ],
   });
 
+  const deployer_addr = await deployer.getAddress();
   console.log(`Deployer: ${deployer_addr}`);
   
 }
