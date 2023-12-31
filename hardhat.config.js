@@ -148,7 +148,7 @@ module.exports = {
     }
   },
 
-  defaultNetwork: "sepolia",
+  defaultNetwork: "mainnet",
   networks: {
     hardhat: {
         forking: {

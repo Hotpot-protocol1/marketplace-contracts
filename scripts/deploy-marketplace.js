@@ -15,6 +15,7 @@ async function main() {
   console.log(`Marketplace logic contract deployed at ${marketplace.target}`);
   console.log(`Deployer: ${deployer_addr}`);
   console.log('Verifying contract...');
+  await new Promise((resolve) => setTimeout(resolve, 30000));
 
   await hre.run("verify:verify", {
     address: marketplace.target,

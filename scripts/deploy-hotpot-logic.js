@@ -20,6 +20,7 @@ async function main() {
   console.log(`Hotpot logic contract deployed at ${hotpot_impl.target}`);
   console.log(`Deployer: ${deployer_addr}`);
   console.log('Verifying contract...');
+  await new Promise((resolve) => setTimeout(resolve, 30000));
 
   await hre.run("verify:verify", {
     address: hotpot_impl.target,
